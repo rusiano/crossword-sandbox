@@ -4,7 +4,8 @@ dist/
 build/
 *.egg-info/
 
-# Personal word lists and sandbox schemas (start from words.example.md)
+# Personal sandbox schemas (words.md and *.sandbox.json are from older versions)
+schemas.json
 words.md
 *.sandbox.json
 

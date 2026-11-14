@@ -1,12 +1,7 @@
 import json
 import os
 
-from .visualize import page, render_sidebar
-
-
-def store_path_for(words_file):
-    """Where the sandbox schemas of a words file are saved (words.md -> words.sandbox.json)"""
-    return os.path.splitext(words_file)[0] + ".sandbox.json"
+from .visualize import page
 
 
 def empty_store():
@@ -66,7 +61,9 @@ SANDBOX_STYLE = r"""
                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
 .toolbar .help kbd { font-size: 0.75rem; }
 .sandbox-status { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
-.board-wrap { overflow: auto; max-width: 100%; }
+/* The grid and the word list beside it (or the grid alone) sit in the middle of the page */
+.board-row { display: flex; gap: 24px; justify-content: center; }
+.board-row .board-wrap { flex: 0 1 auto; min-width: 0; overflow: auto; }
 .board-frame { display: grid; gap: 6px; width: max-content;
                grid-template-areas: ". top ." "left board right" ". bottom ."; }
 .board-frame .board { grid-area: board; }
@@ -120,41 +117,45 @@ SANDBOX_STYLE = r"""
 .side button.pick { border: 0; background: none; padding: 0; font: inherit; color: inherit;
                     text-transform: inherit; cursor: pointer; text-align: left; }
 .side button.pick:hover { text-decoration: underline; }
-.side li.placed button.pick { color: var(--muted); }
-.side li.placed button.pick::after { content: " \2713"; }
-.side li.selected button.pick { color: var(--ink); background: #ffe9a8; }
-.side .typed-title { margin-top: 20px; }
-.side .typed-title[hidden], .side #typed-list[hidden] { display: none; }
+.side li.selected button.pick { background: #ffe9a8; }
+.side .hint[hidden] { display: none; }
 </style>
 """
 
 # Each schema holds rows, cols, placed (word -> {x, y, dir}), order (stacking
-# order, last on top), typed (words typed into the grid, not in the words
-# file) and blocks (black cells added by hand, as "row,col"). Definitions
-# (word -> text) sit beside the schemas, shared by all of them. The schemas are
-# saved on the server when it has a words file (STORE is the saved data),
-# otherwise in localStorage (STORE is null). While a word is being typed,
-# typing is {r, c, dir, text}.
+# order, last on top) and blocks (black cells added by hand, as "row,col").
+# Its words are the ones typed into its grid, and the sidebar lists them.
+# Definitions (word -> text) sit beside the schemas, shared by all of them.
+# The schemas are saved on the server when it has a store file (STORE is the
+# saved data), otherwise in localStorage (STORE is null). While a word is
+# being typed, typing is {r, c, dir, text}.
 SANDBOX_SCRIPT = r"""
 <script>
-// The script sits above the sidebar in the page, so wait for the whole page
+// Wait for the whole page, so every element the script looks up exists
 document.addEventListener("DOMContentLoaded", () => {
-const WORDS = __WORDS__;
-const DEFAULT_SIZE = __SIZE__;
+const DEFAULT_SIZE = 15;
 const KEY = "crossword-sandbox-schemas";
 const SERVER = __STORE__ !== null;
 const board = document.getElementById("board");
 const status = document.getElementById("status");
 const schemaSelect = document.getElementById("schema");
 const savedNote = document.getElementById("saved");
-const typedList = document.getElementById("typed-list");
+const wordList = document.getElementById("word-list");
 const MIN_LINES = 2, MAX_LINES = 60;
-let rows, cols, placed, order, typed, manual, current;
+let rows, cols, placed, order, manual, current;
 let selected = null, drag = null, typing = null, lastDir = "across", painting = false, paint = null;
 // What is shown is a per-browser preference, not part of a schema
 const VIEW_KEY = "crossword-sandbox-view";
-let view = {letters: true, numbers: false};
-try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch (e) {}
+let view = {letters: true, numbers: false, words: true, definitions: false};
+try {
+  const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
+  // Earlier versions kept the word list's state under its own key, and showed
+  // the definitions together with the numbers
+  if (!("words" in saved)) saved.words = localStorage.getItem("crossword-side-hidden") !== "1";
+  if (!("definitions" in saved)) saved.definitions = Boolean(saved.numbers);
+  Object.assign(view, saved);
+} catch (e) {}
+const VIEWS = ["letters", "numbers", "words", "definitions"];
 
 function toggleView(name) {
   view[name] = !view[name];
@@ -170,7 +171,7 @@ function newSchema(name, from) {
     id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name,
     rows: from.rows || from.size || DEFAULT_SIZE, cols: from.cols || from.size || DEFAULT_SIZE,
-    placed: from.placed || {}, order: from.order || [], typed: from.typed || [], blocks: from.blocks || [],
+    placed: from.placed || {}, order: from.order || [], blocks: from.blocks || [],
   };
 }
 
@@ -212,7 +213,9 @@ function persist() {
 
 // Write the current schema back into the store and save it shortly after
 function save() {
-  Object.assign(current, {rows, cols, placed, order, typed, blocks: [...manual]});
+  Object.assign(current, {rows, cols, placed, order, blocks: [...manual]});
+  // Earlier versions also kept a list of typed words, now just the words in the grid
+  delete current.typed;
   store.current = current.id;
   if (JSON.stringify(store) === lastSaved) return;
   setSaved("Saving…");
@@ -220,7 +223,7 @@ function save() {
   timer = setTimeout(persist, 400);
 }
 
-// Leaving the page (or adding a word, which reloads it) must not lose the last change
+// Leaving the page must not lose the last change
 window.addEventListener("pagehide", () => {
   if (!timer) return;
   clearTimeout(timer);
@@ -233,12 +236,10 @@ function loadSchema(schema) {
   current = schema;
   rows = schema.rows || DEFAULT_SIZE;
   cols = schema.cols || DEFAULT_SIZE;
-  // Typed words that are in the words file by now are just words
-  typed = (schema.typed || []).filter(w => !WORDS.includes(w));
   placed = {};
   order = [];
   for (const w of schema.order || []) {
-    if ((WORDS.includes(w) || typed.includes(w)) && schema.placed && schema.placed[w]) {
+    if (schema.placed && schema.placed[w]) {
       placed[w] = {...schema.placed[w]};
       order.push(w);
     }
@@ -435,7 +436,7 @@ function renderClues(clues) {
   const shown = JSON.stringify([view, clues, store.definitions, editing && editing.word, selected]);
   if (shown === cluesShown) return;
   cluesShown = shown;
-  box.hidden = !view.numbers || !order.length;
+  box.hidden = !view.definitions || !order.length;
   if (box.hidden) return;
   const hadFocus = input && document.activeElement === input;
   let newInput = null;
@@ -509,11 +510,12 @@ function renderClues(clues) {
   }
 }
 
-function renderTypedList() {
-  const words = [...typed].sort();
-  document.querySelector(".side .typed-title").hidden = !words.length;
-  typedList.hidden = !words.length;
-  typedList.replaceChildren(...words.map(w => {
+// The sidebar lists the words in this schema's grid
+function renderWordList() {
+  const words = [...order].sort();
+  document.getElementById("word-count").textContent = words.length;
+  document.getElementById("words-empty").hidden = words.length > 0;
+  wordList.replaceChildren(...words.map(w => {
     const li = document.createElement("li");
     li.dataset.word = w;
     const pick = document.createElement("button");
@@ -523,7 +525,7 @@ function renderTypedList() {
     const forget = document.createElement("button");
     forget.type = "button";
     forget.className = "forget";
-    forget.title = `Forget ${w}`;
+    forget.title = `Take ${w} out of the schema`;
     forget.setAttribute("aria-label", forget.title);
     forget.textContent = "×";
     li.append(pick, forget);
@@ -580,12 +582,11 @@ function render() {
       selCells.has(k) ? "sel" : "",
     ].join(" ").trim();
   });
-  renderTypedList();
+  renderWordList();
   renderClues(clues);
-  document.getElementById("letters").setAttribute("aria-pressed", view.letters);
-  document.getElementById("numbers").setAttribute("aria-pressed", view.numbers);
-  document.querySelectorAll(".side li[data-word]").forEach(li => {
-    li.classList.toggle("placed", li.dataset.word in placed);
+  for (const name of VIEWS) document.getElementById(name).setAttribute("aria-pressed", view[name]);
+  document.querySelector("main").classList.toggle("side-hidden", !view.words);
+  wordList.querySelectorAll("li[data-word]").forEach(li => {
     li.classList.toggle("selected", li.dataset.word === selected);
   });
   for (const id of ["across", "down", "remove"]) document.getElementById(id).disabled = !selected;
@@ -606,7 +607,7 @@ function render() {
       : `Cell picked (${typing.dir}) · type a word, or click one in the list to put it here. ` +
         "Tab turns, Esc cancels";
   } else {
-    status.textContent = `${rows} × ${cols} grid · ${order.length} of ${WORDS.length + typed.length} words in the grid` +
+    status.textContent = `${rows} × ${cols} grid · ${order.length} word${order.length === 1 ? "" : "s"}` +
       ` · ${black} black cell${black === 1 ? "" : "s"}` +
       (clashes ? ` · ${clashes} clashing cell${clashes > 1 ? "s" : ""}` : "") +
       (selected ? ` · selected: ${selected.toUpperCase()} (${placed[selected].dir})` : "");
@@ -621,30 +622,6 @@ function select(w) {
   render();
 }
 
-// Put a new word where neither it nor its black cells touch anything, starting from the middle
-function addToBoard(w) {
-  const taken = coverage(), blocks = blockSet();
-  for (const dir of ["across", "down"]) {
-    const lines = dir === "across" ? rows : cols, span = dir === "across" ? cols : rows;
-    const mid = Math.floor(lines / 2);
-    const byMiddle = [...Array(lines).keys()].sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
-    for (const a of byMiddle) {
-      for (let b = 1; b + w.length + 1 <= span; b++) {
-        placed[w] = dir === "across" ? {x: b, y: a, dir} : {x: a, y: b, dir};
-        const free = cellsOf(w).every(([r, c]) => !taken.has(r * cols + c) && !blocks.has(r * cols + c)) &&
-          blocksOf(w).filter(inGrid).every(([r, c]) => !taken.has(r * cols + c));
-        if (free) { order.push(w); select(w); return; }
-      }
-    }
-  }
-  // No free spot: drop it in on the left anyway, widening the grid if it doesn't fit
-  placed[w] = {x: 1, y: Math.floor(rows / 2), dir: "across"};
-  order.push(w);
-  while (cols < w.length + 2) grow("right");
-  clamp(w);
-  select(w);
-}
-
 // Put a word at a given cell (a word already on the board moves there)
 function placeAt(w, r, c, dir) {
   if (!(w in placed)) order.push(w);
@@ -653,17 +630,12 @@ function placeAt(w, r, c, dir) {
   select(w);
 }
 
-// Take a word off the board. Typed words stay in the list, so they can go back.
+// Take a word out of the schema, and so out of the word list
 function removeFromBoard(w) {
   delete placed[w];
   order = order.filter(o => o !== w);
   if (selected === w) selected = null;
   render();
-}
-
-function forget(w) {
-  typed = typed.filter(o => o !== w);
-  removeFromBoard(w);
 }
 
 function turn(dir) {
@@ -709,7 +681,6 @@ function finishTyping() {
   const {r, c, dir, text} = typing;
   typing = null;
   if (!text) { render(); return; }
-  if (!WORDS.includes(text) && !typed.includes(text)) typed.push(text);
   placeAt(text, r, c, dir);
 }
 
@@ -789,9 +760,8 @@ board.addEventListener("pointercancel", endDrag);
 document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.ctrlKey || e.metaKey || e.altKey) return;
   if (typing) { typeKey(e); return; }
-  if (e.key.toLowerCase() === "l") { e.preventDefault(); toggleView("letters"); return; }
-  if (e.key.toLowerCase() === "n") { e.preventDefault(); toggleView("numbers"); return; }
-  if (e.key.toLowerCase() === "w") { e.preventDefault(); document.getElementById("side-toggle").click(); return; }
+  const name = VIEWS.find(n => n[0] === e.key.toLowerCase());
+  if (name) { e.preventDefault(); toggleView(name); return; }
   if (e.key.toLowerCase() === "b" || (painting && e.key === "Escape")) {
     e.preventDefault();
     setPainting(!painting);
@@ -811,12 +781,12 @@ document.addEventListener("keydown", e => {
   action();
 });
 
-// Word list clicks, for the words file and for typed words alike
-document.querySelector(".side").addEventListener("click", e => {
+// Word list clicks: select a word, move it to a picked cell, or take it out
+wordList.addEventListener("click", e => {
   const li = e.target.closest("li[data-word]");
   if (!li) return;
   const w = li.dataset.word;
-  if (e.target.closest("button.forget")) { forget(w); return; }
+  if (e.target.closest("button.forget")) { removeFromBoard(w); return; }
   if (!e.target.closest("button.pick")) return;
   if (painting) setPainting(false);
   // A cell picked on the board with nothing typed yet is where the word goes
@@ -827,8 +797,7 @@ document.querySelector(".side").addEventListener("click", e => {
     return;
   }
   finishTyping();
-  if (w in placed) select(selected === w ? null : w);
-  else addToBoard(w);
+  select(selected === w ? null : w);
 });
 
 // Clicking a clue selects its word and opens its definition for editing
@@ -855,8 +824,7 @@ document.getElementById("across").onclick = () => turn("across");
 document.getElementById("down").onclick = () => turn("down");
 document.getElementById("remove").onclick = () => selected && removeFromBoard(selected);
 document.getElementById("paint").onclick = () => setPainting(!painting);
-document.getElementById("letters").onclick = () => toggleView("letters");
-document.getElementById("numbers").onclick = () => toggleView("numbers");
+for (const name of VIEWS) document.getElementById(name).onclick = () => toggleView(name);
 document.getElementById("clear").onclick = () => {
   if ((order.length || manual.size) && !confirm("Remove every word and black cell from the grid?")) return;
   placed = {}; order = []; manual = new Set(); selected = null; typing = null;
@@ -888,7 +856,7 @@ document.getElementById("schema-copy").onclick = () => {
   if (!name) return;
   finishTyping();
   save();
-  const schema = newSchema(name, JSON.parse(JSON.stringify({rows, cols, placed, order, typed, blocks: [...manual]})));
+  const schema = newSchema(name, JSON.parse(JSON.stringify({rows, cols, placed, order, blocks: [...manual]})));
   store.schemas.push(schema);
   loadSchema(schema);
 };
@@ -913,20 +881,20 @@ loadSchema(store.schemas.find(s => s.id === store.current) || store.schemas[0]);
 """
 
 
-def render_sandbox_page(words, title="Crossword", editable=False, store=None):
+def render_sandbox_page(title="Crossword", store=None):
     """Render the sandbox page served at /.
 
-    Words are listed in the sidebar; clicking one drops it into a free grid,
-    where it can be dragged around, turned with H/V and moved with the arrow
-    keys. Words can also be typed into the grid, and black cells added by
-    hand. The page keeps several named schemas. With store (the saved data,
-    see read_store) they are saved back to the server, otherwise in the
-    browser's localStorage.
+    Words are typed into the grid, where they can be dragged around, turned
+    with H/V and moved with the arrow keys, and black cells are added by hand.
+    The sidebar lists the words of the current schema. The page keeps several
+    named schemas. With store (the saved data, see read_store) they are saved
+    back to the server, otherwise in the browser's localStorage.
     """
-    size = max([15] + [len(w) for w in words])
-    typed = """<h2 class="typed-title" hidden>TYPED IN THIS SCHEMA</h2>
-<ul id="typed-list" hidden></ul>"""
-    sidebar = render_sidebar(words, editable=editable, extra=typed)
+    sidebar = """<aside class="side" id="side"><div class="side-inner">
+<h2>WORDS (<span id="word-count">0</span>)</h2>
+<ul id="word-list"></ul>
+<p class="hint" id="words-empty">Click an empty cell in the grid and type a word.</p>
+</div></aside>"""
     edges = []
     for edge, line in [("top", "row"), ("left", "column"), ("right", "column"), ("bottom", "row")]:
         edges.append(f"""<div class="edge {edge}">
@@ -958,24 +926,30 @@ def render_sandbox_page(words, title="Crossword", editable=False, store=None):
 <div class="group" role="group" aria-label="View">
 <span class="label">View</span>
 <button type="button" id="letters" aria-pressed="true" title="Show or hide letters (L)">Letters <kbd>L</kbd></button>
-<button type="button" id="numbers" aria-pressed="false" title="Show or hide numbers and clues (N)">Numbers <kbd>N</kbd></button>
+<button type="button" id="numbers" aria-pressed="false" title="Show or hide numbers (N)">Numbers <kbd>N</kbd></button>
+<button type="button" id="words" aria-pressed="true" aria-controls="side" title="Show or hide the word list (W)">Words <kbd>W</kbd></button>
+<button type="button" id="definitions" aria-pressed="false" aria-controls="clues" title="Show or hide the definitions (D)">Definitions <kbd>D</kbd></button>
 </div>
 <div class="group end">
 <details class="help"><summary>Help</summary>
-<p>Click a word in the list to put it in the grid, then drag it. <kbd>H</kbd> / <kbd>V</kbd>: across / down,
-arrows: move, <kbd>Del</kbd>: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then type a new word
-there (<kbd>Tab</kbd> turns it, <kbd>Enter</kbd> keeps it) or click a word in the list to put it there.
-<kbd>B</kbd>: add black cells. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers (click a numbered
-word to write its definition), <kbd>W</kbd>: word list. The +/&minus; buttons around the grid add or remove
+<p>Click an empty cell and type a word there (<kbd>Tab</kbd> turns it, <kbd>Enter</kbd> keeps it). Drag a word
+to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
+<kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
+the list, to move that word there.
+<kbd>B</kbd>: add black cells. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers, <kbd>W</kbd>: word list,
+<kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid add or remove
 rows and columns. Every schema is saved by itself: New and Duplicate never touch the others.</p>
 </details>
 </div>
 </div>
 <p class="sandbox-status" id="status" aria-live="polite"></p>
+<div class="board-row">
 <div class="board-wrap"><div class="board-frame">
 {edges}
 <div class="board" id="board"></div>
 </div></div>
+{sidebar}
+</div>
 <div class="clues" id="clues" hidden></div>
 {SANDBOX_STYLE}"""
 
@@ -983,7 +957,5 @@ rows and columns. Every schema is saved by itself: New and Duplicate never touch
     def js(value):
         return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
 
-    script = (SANDBOX_SCRIPT.replace("__WORDS__", js(sorted(words)))
-              .replace("__SIZE__", str(size))
-              .replace("__STORE__", js(store)))
-    return page(body + script, title=f"{title} sandbox", sidebar=sidebar)
+    script = SANDBOX_SCRIPT.replace("__STORE__", js(store))
+    return page(body + script, title=f"{title} sandbox", wide=True)
