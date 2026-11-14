@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Shortcut for the crossword sandbox.
+
+./crossword                  -> words.md (or words.example.md), opened in the sandbox
+./crossword -f other.md      -> any other words file
+./crossword cross word       -> words as arguments (not saved anywhere)
+"""
+import os
+import sys
+
+root = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(root, "src"))
+
+from crossword.visualize import main
+
+args = sys.argv[1:]
+# Options that take a value; their value is not a word
+takes_value = {"-f", "--file", "--title", "--port"}
+has_words = any(
+    a in ("-f", "--file") or (not a.startswith("-") and (i == 0 or args[i - 1] not in takes_value))
+    for i, a in enumerate(args)
+)
+if not has_words:
+    # No words given: serve the repo's words file (words.md, else the example list)
+    words_file = os.path.join(root, "words.md")
+    if not os.path.exists(words_file):
+        words_file = os.path.join(root, "words.example.md")
+    args += ["-f", words_file]
+
+raise SystemExit(main(args))

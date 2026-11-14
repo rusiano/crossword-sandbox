@@ -1,0 +1,12 @@
+crossword.html
+__pycache__/
+dist/
+build/
+*.egg-info/
+
+# Personal word lists and sandbox schemas (start from words.example.md)
+words.md
+*.sandbox.json
+
+# Local Claude Code settings
+.claude/settings.local.json
