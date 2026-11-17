@@ -35,9 +35,20 @@ class PageTests(unittest.TestCase):
         self.assertIn('for (const id of ["def-close", "def-cancel"]) document.getElementById(id).onclick = () => defDialog.close();', html)
         self.assertIn('if (e.target === defDialog && downOnBackdrop) defDialog.close();', html)
         # Only Save writes the definition
-        self.assertIn('defDialog.close();\n  setDefinition(w, defInput.value);', html)
+        self.assertIn('  if (to !== w) renameWord(w, to);\n  setDefinition(to, definition);', html)
         # Shortcuts are off while it is open
         self.assertIn('if (defDialog.open) return;', html)
+
+    def test_word_popup_edits_the_letters(self):
+        html = render_sandbox_page()
+        start = html.index('<dialog class="def-dialog"')
+        self.assertLess(start, html.index('id="word-input"'))
+        self.assertLess(html.index('id="word-input"'), html.index('id="def-input"'))
+        self.assertIn('function renameWord(w, to)', html)
+        # Letters only, never the same word twice, and the grid grows to fit
+        self.assertIn('/^\\p{L}+$/u.test(to)', html)
+        self.assertIn('to !== w && to in placed', html)
+        self.assertIn('  makeRoom(to);\n}', html)
 
     def test_word_list_marks_words_without_definition(self):
         html = render_sandbox_page()
@@ -103,14 +114,12 @@ class SandboxPageTests(unittest.TestCase):
     def test_enclosed_empty_cells_are_black(self):
         # Empty cells cut off from the edge by words are inside the schema
         html = render_sandbox_page()
-        # and black, with the ones added by hand: black cells reachable from the
-        # edge are grey. Cells added by hand also wall off what is behind them
+        # and black: empty cells reachable from the edge are grey
         self.assertIn('function outsideSet(map)', html)
         # It comes in from every side of the grid
         self.assertIn('for (let r = 0; r < rows; r++) { visit(r, 0); visit(r, cols - 1); }', html)
         self.assertIn('seen.has(k) || map.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
-        self.assertIn('.board.painting div.painted', html)
         # They are counted, and numbered when the view asks for it
         self.assertIn('!outside.has(k) && ++black && view.blackNumbers', html)
 
@@ -119,7 +128,11 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         # External cells (dark grey) are the word ends and the cells within the
         # area the letters span, so a schema closed on all four sides has no light grey
-        self.assertIn('const ends = new Set([...outside].filter(k => wordEnds.has(k) || inArea(k)));', html)
+        self.assertIn('const ends = new Set([...outside].filter(k => wordEnds.has(k)));', html)
+        self.assertIn('const bordering = new Set([...outside].filter(k => !wordEnds.has(k) && inArea(k)));', html)
+        # Word ends (real black cells) and bordering cells get different greys
+        self.assertIn('.board div.ext { background: #c6c6c6; }', html)
+        self.assertIn('.board div.end { background: #7d7d7d; }', html)
         self.assertIn('External as black <kbd>A</kbd></button>', html)
         self.assertNotIn('Outside as black', html)
         self.assertNotIn('touchesLetter', html)
@@ -165,18 +178,22 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         self.assertIn('id="all-black"', html)
         self.assertIn('const outside = allBlack ? new Set() : outsideSet(map);', html)
-        # Cells painted outside the schema are shown as outside
-        self.assertNotIn('outside.delete(k)', html)
-        self.assertIn('.board.painting div.painted:not(.block)', html)
         # It belongs to the schema, so it is saved and copied with it
-        self.assertIn('blocks: [...manual], allBlack}', html)
+        self.assertIn('{rows, cols, placed, order, allBlack}', html)
         self.assertIn('allBlack = Boolean(schema.allBlack);', html)
 
     def test_only_letters_keep_an_edge_line(self):
         # An all-grey edge row or column can go, even with black cells on it
         html = render_sandbox_page()
         self.assertIn('return order.flatMap(cellsOf).every(', html)
-        self.assertIn('[...order.flatMap(blocksOf), ...manualCells()].filter(inGrid)', html)
+        self.assertIn('const cells = order.flatMap(blocksOf).filter(inGrid);', html)
+
+    def test_black_cells_are_no_longer_painted_by_hand(self):
+        html = render_sandbox_page()
+        for gone in ['id="paint"', 'Edit black cells', 'painting', 'manual']:
+            self.assertNotIn(gone, html)
+        # Black cells saved by hand in older schemas are dropped on the next save
+        self.assertIn('delete current.blocks;', html)
 
     def test_trim_removes_empty_outer_lines(self):
         html = render_sandbox_page()
@@ -214,7 +231,7 @@ class SandboxPageTests(unittest.TestCase):
 
     def test_schema_controls_word_list_and_black_cells(self):
         html = render_sandbox_page()
-        for id_ in ['schema', 'schema-new', 'schema-copy', 'schema-rename', 'schema-delete', 'paint', 'word-list']:
+        for id_ in ['schema', 'schema-new', 'schema-copy', 'schema-rename', 'schema-delete', 'word-list']:
             self.assertIn(f'id="{id_}"', html)
         self.assertLess(html.index('class="side"'), html.index('id="word-list"'))
 
@@ -226,7 +243,7 @@ class SandboxPageTests(unittest.TestCase):
             self.assertTrue(bar < html.index(f'id="{id_}"') < tools, id_)
         # The sticky toolbar holds the tools for the current schema
         end = html.index('id="status"')
-        for id_ in ['across', 'remove', 'paint', 'letters', 'numbers', 'words', 'definitions']:
+        for id_ in ['across', 'remove', 'trim', 'letters', 'numbers', 'words', 'definitions']:
             self.assertTrue(tools < html.index(f'id="{id_}"') < end, id_)
         self.assertIn('<details class="help">', html)
         self.assertIn('.toolbar.schemas { position: static;', html)
@@ -235,11 +252,12 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         # Letters, numbers, black cell numbers, words and definitions, side by side, each with its key
         ids = [html.index(f'id="{id_}"') for id_ in
-               ['letters', 'numbers', 'black-numbers', 'words', 'definitions']]
+               ['letters', 'numbers', 'black-cells', 'words', 'definitions']]
         self.assertEqual(ids, sorted(ids))
-        for key in 'LNMWD':
+        for key in 'LNBWD':
             self.assertIn(f'<kbd>{key}</kbd></button>', html)
-        self.assertIn('{name: "blackNumbers", id: "black-numbers", key: "m"},', html)
+        self.assertIn('{name: "blackNumbers", id: "black-cells", key: "b"},', html)
+        self.assertIn('Black cells <kbd>B</kbd></button>', html)
         # The definitions have their own toggle, apart from the numbers
         self.assertIn('box.hidden = !view.definitions || !order.length;', html)
         self.assertIn('class="clues" id="clues" hidden', html)
