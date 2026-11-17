@@ -150,6 +150,8 @@ main { position: relative; }
              font-weight: 600; text-transform: uppercase; }
 .board div.filled { background: var(--paper); cursor: grab; box-shadow: inset 0 0 0 1px var(--ink); }
 .board div.cross { background: #e6f0ff; }
+/* A letter no word can ever cross (black on both sides across its word) is as good as crossed */
+.board div.nocross { background: #e6f0ff; }
 .board div.sel { background: #ffe9a8; }
 .board div.sel.cross { background: #ffd966; }
 .board div.block { background: var(--block); }
@@ -414,15 +416,45 @@ function makeRoom(w) {
 // cells here. Inside the schema's area these are
 // its external cells, beyond it they are out of the schema (see render).
 function outsideSet(map) {
+  return spread(map, Object.values(edgeLines()).flat());
+}
+
+// Hard external cells: when a side of the grid is closed (it has a letter on
+// it, so it is the schema's margin), its empty cells are external, and so is
+// every empty cell sharing a full side with an external one. No word can run
+// through them, so they bound words like black cells (but aren't counted).
+// A cell on an open side (no letter on it) is in doubt, as that side could
+// still take words: the less constraining reading wins, so it is never hard,
+// not even in a corner it shares with a closed side, and the spread stops there.
+function hardExternalSet(map) {
+  const lines = Object.values(edgeLines());
+  const closed = lines.filter(line => line.some(k => map.has(k)));
+  const open = new Set(lines.filter(line => !closed.includes(line)).flat());
+  return spread(map, closed.flat(), open);
+}
+
+// The cells of each side of the grid
+function edgeLines() {
+  return {
+    top: Array.from({length: cols}, (_, c) => c),
+    bottom: Array.from({length: cols}, (_, c) => (rows - 1) * cols + c),
+    left: Array.from({length: rows}, (_, r) => r * cols),
+    right: Array.from({length: rows}, (_, r) => r * cols + cols - 1),
+  };
+}
+
+// The empty cells among seeds, and every empty cell reached from them through
+// full sides; letters stop it, and so do the cells in barred (if given)
+function spread(map, seeds, barred) {
   const seen = new Set(), stack = [];
   const visit = (r, c) => {
     const k = r * cols + c;
     if (r < 0 || r >= rows || c < 0 || c >= cols || seen.has(k) || map.has(k)) return;
+    if (barred && barred.has(k)) return;
     seen.add(k);
     stack.push([r, c]);
   };
-  for (let r = 0; r < rows; r++) { visit(r, 0); visit(r, cols - 1); }
-  for (let c = 0; c < cols; c++) { visit(0, c); visit(rows - 1, c); }
+  for (const k of seeds) visit(Math.floor(k / cols), k % cols);
   while (stack.length) {
     const [r, c] = stack.pop();
     visit(r - 1, c); visit(r + 1, c); visit(r, c - 1); visit(r, c + 1);
@@ -655,6 +687,27 @@ function render() {
   // (left and right of an across word, above and below a down word), which
   // delimit it even beyond the area. Every other one is out of the schema, light grey.
   const wordEnds = new Set(order.flatMap(blocksOf).filter(inGrid).map(([r, c]) => r * cols + c));
+  // Cells no word can run through: hard external ones, spreading from the
+  // closed sides of the grid (see hardExternalSet)
+  const hard = hardExternalSet(map);
+  // A letter in one word only can't be crossed when both cells beside it,
+  // across the word's direction, are hard boundaries: walled in by letters, a
+  // word's end, past the grid's edge, or hard external. Other grey cells are
+  // open, as a word could still go there; External as black doesn't count, as
+  // it only changes how they look.
+  const walledIn = allBlack ? outsideSet(map) : outside;
+  const isBlack = (r, c) => {
+    if (!inGrid([r, c])) return true;
+    const k = r * cols + c;
+    if (map.has(k)) return false;
+    return wordEnds.has(k) || !walledIn.has(k) || hard.has(k);
+  };
+  const uncrossable = (k, w) => {
+    const r = Math.floor(k / cols), c = k % cols;
+    return placed[w].dir === "across"
+      ? isBlack(r - 1, c) && isBlack(r + 1, c)
+      : isBlack(r, c - 1) && isBlack(r, c + 1);
+  };
   let top = rows, bottom = -1, left = cols, right = -1;
   for (const k of map.keys()) {
     const r = Math.floor(k / cols), c = k % cols;
@@ -665,8 +718,9 @@ function render() {
     const r = Math.floor(k / cols), c = k % cols;
     return r >= top && r <= bottom && c >= left && c <= right;
   };
-  // Word ends (darker) are told apart from the cells that only border the schema
-  const ends = new Set([...outside].filter(k => wordEnds.has(k)));
+  // Word ends and hard external cells (dark grey, never counted as black unless
+  // External as black is on) are told apart from the cells that only border the schema
+  const ends = new Set([...outside].filter(k => wordEnds.has(k) || hard.has(k)));
   const bordering = new Set([...outside].filter(k => !wordEnds.has(k) && inArea(k)));
   const selCells = new Set(selected ? cellsOf(selected).map(([r, c]) => r * cols + c) : []);
   // Letters being typed, drawn over whatever is underneath
@@ -709,6 +763,7 @@ function render() {
       here.length ? "filled" : outside.has(k) ? "" : "block",
       !here.length && ends.has(k) ? "end" : !here.length && bordering.has(k) ? "ext" : "",
       here.length > 1 && !clash ? "cross" : "",
+      here.length === 1 && !clash && uncrossable(k, here[0].word) ? "nocross" : "",
       clash ? "clash" : "",
       selCells.has(k) ? "sel" : "",
     ].join(" ").trim();
@@ -734,7 +789,7 @@ function render() {
     : typing.text
       ? `Typing ${typing.dir}: ${typing.text.toUpperCase()} · ` +
         "Enter keeps it, Tab turns it, Backspace deletes a letter, Esc cancels"
-      : `Cell picked (${typing.dir}) · type a word, or click one in the list to put it here. ` +
+      : `Cell picked (${typing.dir}) · type a word. ` +
         "Tab turns, Esc cancels";
   modeNote.textContent = message;
   modeNote.hidden = !message;
@@ -921,20 +976,15 @@ document.addEventListener("keydown", e => {
   action();
 });
 
-// Word list clicks: select a word, move it to a picked cell, or take it out
+// Word list clicks: select a word (it stays where it is) and open its popup, or take it out
 wordList.addEventListener("click", e => {
   const li = e.target.closest("li[data-word]");
   if (!li) return;
   const w = li.dataset.word;
   if (e.target.closest("button.forget")) { removeFromBoard(w); return; }
   if (!e.target.closest("button.pick")) return;
-  // A cell picked on the board with nothing typed yet is where the word goes
-  if (typing && !typing.text) {
-    const {r, c, dir} = typing;
-    typing = null;
-    placeAt(w, r, c, dir);
-    return;
-  }
+  // A cell picked on the board with nothing typed yet is just let go: the
+  // word keeps its place
   finishTyping();
   select(w);
   openDefinition(w);
@@ -1152,13 +1202,17 @@ its definition; &times; takes it out of the schema.</span></span></h2>
 <details class="help"><summary>Help</summary>
 <p>Click an empty cell and type a word there (<kbd>Tab</kbd> turns it, <kbd>Enter</kbd> keeps it). Drag a word
 to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
-<kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
-the list, to move that word there.
+<kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Clicking a word in the list never
+moves it.
 <kbd>A</kbd>: show the external cells as black too, for a
 full rectangular schema; off, only the cells walled in by letters are black. External cells are the empty
-cells not walled in by letters: dark grey at both ends of a word (real black cells, delimiting it), mid grey
+cells not walled in by letters: dark grey at both ends of a word (real black cells, delimiting it) and once a side of the grid has
+letters on it (the schema's margin, closed): its empty cells, and every empty cell they touch, on and
+on, are hard external cells no word can run through (never on a side still open, corners included). Mid grey
 where they only border the schema within the area the words span; light grey is beyond the schema.
 <kbd>T</kbd>: trim, removing every outer row and column with no letter on it.
+Letters are light blue when crossed by two words or when they can never be crossed (black or hard external on both sides
+across their word), so white letters are the ones still waiting for a crossing.
 <kbd>L</kbd>: letters, <kbd>N</kbd>: word numbers, <kbd>B</kbd>: black cell numbers, <kbd>W</kbd>: word list,
 <kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid, or the size in the
 line below the tools, add or remove rows and columns. Every schema is saved by itself: New and Duplicate never

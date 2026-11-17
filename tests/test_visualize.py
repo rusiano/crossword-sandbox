@@ -117,18 +117,23 @@ class SandboxPageTests(unittest.TestCase):
         # and black: empty cells reachable from the edge are grey
         self.assertIn('function outsideSet(map)', html)
         # It comes in from every side of the grid
-        self.assertIn('for (let r = 0; r < rows; r++) { visit(r, 0); visit(r, cols - 1); }', html)
+        self.assertIn('return spread(map, Object.values(edgeLines()).flat());', html)
         self.assertIn('seen.has(k) || map.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
         # They are counted, and numbered when the view asks for it
-        self.assertIn('!outside.has(k) && ++black && view.blackNumbers', html)
+        # Only walled-in cells are counted: external ones only with External as black
+        self.assertIn('if (!here.length && !outside.has(k) && ++black && view.blackNumbers) {', html)
 
     def test_external_cells_get_the_darker_grey(self):
         # The cells along a word's sides don't delimit it, only the ones at its ends
         html = render_sandbox_page()
         # External cells (dark grey) are the word ends and the cells within the
         # area the letters span, so a schema closed on all four sides has no light grey
-        self.assertIn('const ends = new Set([...outside].filter(k => wordEnds.has(k)));', html)
+        self.assertIn('const ends = new Set([...outside].filter(k => wordEnds.has(k) || hard.has(k)));', html)
+        # Hard external cells spread from the empty cells of the closed sides
+        self.assertIn('return spread(map, closed.flat(), open);', html)
+        # A cell on an open side is never hard, not even in a corner shared with a closed side
+        self.assertIn('if (barred && barred.has(k)) return;', html)
         self.assertIn('const bordering = new Set([...outside].filter(k => !wordEnds.has(k) && inArea(k)));', html)
         # Word ends (real black cells) and bordering cells get different greys
         self.assertIn('.board div.ext { background: #c6c6c6; }', html)
@@ -136,6 +141,16 @@ class SandboxPageTests(unittest.TestCase):
         self.assertIn('External as black <kbd>A</kbd></button>', html)
         self.assertNotIn('Outside as black', html)
         self.assertNotIn('touchesLetter', html)
+
+    def test_letters_that_cannot_be_crossed_are_blue(self):
+        html = render_sandbox_page()
+        self.assertIn('.board div.nocross { background: #e6f0ff; }', html)
+        self.assertIn('here.length === 1 && !clash && uncrossable(k, here[0].word) ? "nocross" : ""', html)
+        # Black on both sides across the word's direction; past the edge counts as black
+        self.assertIn('? isBlack(r - 1, c) && isBlack(r + 1, c)', html)
+        self.assertIn('if (!inGrid([r, c])) return true;', html)
+        # Grey cells on a closed side of the grid (the schema's margin) block too
+        self.assertIn('return wordEnds.has(k) || !walledIn.has(k) || hard.has(k);', html)
 
     def test_black_share_is_coloured(self):
         html = render_sandbox_page()
@@ -218,9 +233,11 @@ class SandboxPageTests(unittest.TestCase):
         self.assertIn('function makeRoom(w)', html)
         self.assertIn('order.forEach(makeRoom);', html)
 
-    def test_picked_word_goes_to_picked_cell(self):
+    def test_clicking_a_listed_word_never_moves_it(self):
+        # A cell picked on the board no longer pulls the clicked word there
         html = render_sandbox_page()
-        self.assertIn('if (typing && !typing.text) {', html)
+        self.assertNotIn('if (typing && !typing.text) {', html)
+        self.assertNotIn('click one in the list to put it here', html)
 
     def test_store_is_embedded_or_null(self):
         self.assertIn('let store = null;', render_sandbox_page())
