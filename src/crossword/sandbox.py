@@ -558,6 +558,30 @@ function render() {
       .some(([nr, nc]) => inGrid([nr, nc]) && map.has(nr * cols + nc));
   };
   const ends = new Set([...outside].filter(touchesLetter));
+  // A side of the grid with letters on it is the schema's margin, so it is closed:
+  // along it, a run of outside cells that has, or touches by a side, a cell
+  // delimiting a word turns dark grey all the way to the next letter or painted cell
+  const delimiting = new Set(ends);
+  const nearDelimiting = k => {
+    const r = Math.floor(k / cols), c = k % cols;
+    return [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]
+      .some(([nr, nc]) => inGrid([nr, nc]) && delimiting.has(nr * cols + nc));
+  };
+  const edges = [
+    Array.from({length: cols}, (_, c) => c),                     // top
+    Array.from({length: cols}, (_, c) => (rows - 1) * cols + c), // bottom
+    Array.from({length: rows}, (_, r) => r * cols),              // left
+    Array.from({length: rows}, (_, r) => r * cols + cols - 1),   // right
+  ];
+  for (const line of edges) {
+    if (!line.some(k => map.has(k))) continue;
+    let run = [];
+    for (const k of [...line, -1]) {
+      if (outside.has(k)) { run.push(k); continue; }
+      if (run.some(nearDelimiting)) run.forEach(j => ends.add(j));
+      run = [];
+    }
+  }
   const selCells = new Set(selected ? cellsOf(selected).map(([r, c]) => r * cols + c) : []);
   // Letters being typed, drawn over whatever is underneath
   const typingCells = new Map();
