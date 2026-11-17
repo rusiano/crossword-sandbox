@@ -79,12 +79,23 @@ class SandboxPageTests(unittest.TestCase):
     def test_enclosed_empty_cells_are_black(self):
         # Empty cells cut off from the edge by words are inside the schema
         html = render_sandbox_page()
-        # and only those are black: black cells reachable from the edge are grey
-        self.assertIn('function outsideSet(map)', html)
+        # and black, with the ones added by hand: black cells reachable from the
+        # edge are grey. Cells added by hand also wall off what is behind them
+        self.assertIn('function outsideSet(map, walls)', html)
+        self.assertIn('map.has(k) || walls.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
         self.assertIn('.board.painting div.painted', html)
         # They are numbered so they can be counted
         self.assertIn('count.textContent = ++black;', html)
+
+    def test_all_black_counts_every_empty_cell(self):
+        # A full rectangular schema has no outside, so every empty cell is black
+        html = render_sandbox_page()
+        self.assertIn('id="all-black"', html)
+        self.assertIn('const outside = allBlack ? new Set() : outsideSet(map, hand);', html)
+        # It belongs to the schema, so it is saved and copied with it
+        self.assertIn('blocks: [...manual], allBlack}', html)
+        self.assertIn('allBlack = Boolean(schema.allBlack);', html)
 
     def test_only_letters_keep_an_edge_line(self):
         # An all-grey edge row or column can go, even with black cells on it

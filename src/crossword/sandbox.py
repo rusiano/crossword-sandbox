@@ -86,8 +86,10 @@ SANDBOX_STYLE = r"""
 .board div.sel { background: #ffe9a8; }
 .board div.sel.cross { background: #ffd966; }
 .board div.block { background: var(--block); }
+.board div.end { background: #8c8c8c; }
 .board div .count { color: var(--paper); font-size: 0.7rem; font-weight: 400; }
-.board.painting div.painted { box-shadow: inset 0 0 0 3px var(--block); }
+/* While painting, the black cells added by hand get a light ring, to tell them from the others */
+.board.painting div.painted { box-shadow: inset 0 0 0 3px #bdbdbd; }
 .board div.clash { background: #ffd6dc; color: #b00020; }
 .board div.typing { background: #d8f5d0; box-shadow: inset 0 0 0 2px #2e7d32; }
 .board div.cursor { box-shadow: inset 0 0 0 2px #2e7d32; animation: blink 1s steps(1) infinite; }
@@ -123,7 +125,8 @@ SANDBOX_STYLE = r"""
 """
 
 # Each schema holds rows, cols, placed (word -> {x, y, dir}), order (stacking
-# order, last on top) and blocks (black cells added by hand, as "row,col").
+# order, last on top), blocks (black cells added by hand, as "row,col") and
+# allBlack (every empty cell is black, as in a full rectangular schema).
 # Its words are the ones typed into its grid, and the sidebar lists them.
 # Definitions (word -> text) sit beside the schemas, shared by all of them.
 # The schemas are saved on the server when it has a store file (STORE is the
@@ -142,7 +145,7 @@ const schemaSelect = document.getElementById("schema");
 const savedNote = document.getElementById("saved");
 const wordList = document.getElementById("word-list");
 const MIN_LINES = 2, MAX_LINES = 60;
-let rows, cols, placed, order, manual, current;
+let rows, cols, placed, order, manual, allBlack, current;
 let selected = null, drag = null, typing = null, lastDir = "across", painting = false, paint = null;
 // What is shown is a per-browser preference, not part of a schema
 const VIEW_KEY = "crossword-sandbox-view";
@@ -172,6 +175,7 @@ function newSchema(name, from) {
     name,
     rows: from.rows || from.size || DEFAULT_SIZE, cols: from.cols || from.size || DEFAULT_SIZE,
     placed: from.placed || {}, order: from.order || [], blocks: from.blocks || [],
+    allBlack: Boolean(from.allBlack),
   };
 }
 
@@ -213,7 +217,7 @@ function persist() {
 
 // Write the current schema back into the store and save it shortly after
 function save() {
-  Object.assign(current, {rows, cols, placed, order, blocks: [...manual]});
+  Object.assign(current, {rows, cols, placed, order, blocks: [...manual], allBlack});
   // Earlier versions also kept a list of typed words, now just the words in the grid
   delete current.typed;
   store.current = current.id;
@@ -248,6 +252,7 @@ function loadSchema(schema) {
     const [r, c] = k.split(",").map(Number);
     return r >= 0 && r < rows && c >= 0 && c < cols;
   }));
+  allBlack = Boolean(schema.allBlack);
   selected = null;
   typing = null;
   buildBoard();
@@ -326,13 +331,14 @@ function makeRoom(w) {
 }
 
 // Cells without a letter that the edge of the grid reaches without crossing a
-// letter lie outside the schema and are shown grey, black cells included. Only
-// the cells walled in by letters all around are shown black.
-function outsideSet(map) {
+// letter or a black cell added by hand (walls) lie outside the schema and are
+// shown grey, word-end black cells included. The cells walled in all around,
+// and the ones added by hand, are shown black.
+function outsideSet(map, walls) {
   const seen = new Set(), stack = [];
   const visit = (r, c) => {
     const k = r * cols + c;
-    if (r < 0 || r >= rows || c < 0 || c >= cols || seen.has(k) || map.has(k)) return;
+    if (r < 0 || r >= rows || c < 0 || c >= cols || seen.has(k) || map.has(k) || walls.has(k)) return;
     seen.add(k);
     stack.push([r, c]);
   };
@@ -535,7 +541,11 @@ function renderWordList() {
 
 function render() {
   const map = coverage(), blocks = blockSet(), {numbers, clues} = numbering();
-  const outside = outsideSet(map);
+  const hand = new Set(manualCells().filter(inGrid).map(([r, c]) => r * cols + c));
+  // A full schema has no outside: every empty cell is black and counted
+  const outside = allBlack ? new Set() : outsideSet(map, hand);
+  // Word-end black cells, which stand out from the grey even when they are outside
+  const ends = new Set(order.flatMap(blocksOf).filter(inGrid).map(([r, c]) => r * cols + c));
   const selCells = new Set(selected ? cellsOf(selected).map(([r, c]) => r * cols + c) : []);
   // Letters being typed, drawn over whatever is underneath
   const typingCells = new Map();
@@ -575,8 +585,8 @@ function render() {
     }
     cell.className = [
       here.length ? "filled" : outside.has(k) ? "" : "block",
-      // Cells painted by hand that ended up grey still show while painting
-      !here.length && outside.has(k) && manual.has(`${Math.floor(k / cols)},${k % cols}`) ? "painted" : "",
+      !here.length && outside.has(k) && ends.has(k) ? "end" : "",
+      painting && !here.length && hand.has(k) ? "painted" : "",
       here.length > 1 && !clash ? "cross" : "",
       clash ? "clash" : "",
       selCells.has(k) ? "sel" : "",
@@ -592,6 +602,7 @@ function render() {
   for (const id of ["across", "down", "remove"]) document.getElementById(id).disabled = !selected;
   const paintButton = document.getElementById("paint");
   paintButton.setAttribute("aria-pressed", painting);
+  document.getElementById("all-black").setAttribute("aria-pressed", allBlack);
   board.classList.toggle("painting", painting);
   document.querySelectorAll(".edge button").forEach(btn => {
     const lines = btn.dataset.edge === "top" || btn.dataset.edge === "bottom" ? rows : cols;
@@ -657,6 +668,11 @@ function setPainting(on) {
   finishTyping();
   painting = on;
   if (on) selected = null;
+  render();
+}
+
+function toggleAllBlack() {
+  allBlack = !allBlack;
   render();
 }
 
@@ -767,6 +783,7 @@ document.addEventListener("keydown", e => {
     setPainting(!painting);
     return;
   }
+  if (e.key.toLowerCase() === "a") { e.preventDefault(); toggleAllBlack(); return; }
   const keys = {
     h: () => turn("across"), v: () => turn("down"),
     ArrowLeft: () => move(-1, 0), ArrowRight: () => move(1, 0),
@@ -824,6 +841,7 @@ document.getElementById("across").onclick = () => turn("across");
 document.getElementById("down").onclick = () => turn("down");
 document.getElementById("remove").onclick = () => selected && removeFromBoard(selected);
 document.getElementById("paint").onclick = () => setPainting(!painting);
+document.getElementById("all-black").onclick = toggleAllBlack;
 for (const name of VIEWS) document.getElementById(name).onclick = () => toggleView(name);
 document.getElementById("clear").onclick = () => {
   if ((order.length || manual.size) && !confirm("Remove every word and black cell from the grid?")) return;
@@ -856,7 +874,7 @@ document.getElementById("schema-copy").onclick = () => {
   if (!name) return;
   finishTyping();
   save();
-  const schema = newSchema(name, JSON.parse(JSON.stringify({rows, cols, placed, order, blocks: [...manual]})));
+  const schema = newSchema(name, JSON.parse(JSON.stringify({rows, cols, placed, order, blocks: [...manual], allBlack})));
   store.schemas.push(schema);
   loadSchema(schema);
 };
@@ -921,6 +939,7 @@ def render_sandbox_page(title="Crossword", store=None):
 <div class="group" role="group" aria-label="Grid">
 <span class="label">Grid</span>
 <button type="button" id="paint" title="Add or remove black cells (B)" aria-pressed="false">Black cells <kbd>B</kbd></button>
+<button type="button" id="all-black" aria-pressed="false" title="Count every empty cell as black, as in a full rectangular schema. Off: only the cells walled in by letters and the ones added by hand (A)">All black <kbd>A</kbd></button>
 <button type="button" id="clear" class="danger" title="Remove every word and black cell">Clear</button>
 </div>
 <div class="group" role="group" aria-label="View">
@@ -936,7 +955,8 @@ def render_sandbox_page(title="Crossword", store=None):
 to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
 <kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
 the list, to move that word there.
-<kbd>B</kbd>: add black cells. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers, <kbd>W</kbd>: word list,
+<kbd>B</kbd>: add black cells (they also close off the area behind them). <kbd>A</kbd>: every empty cell
+is black, for a full rectangular schema; off, only the cells walled in by letters or added by hand count. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers, <kbd>W</kbd>: word list,
 <kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid add or remove
 rows and columns. Every schema is saved by itself: New and Duplicate never touch the others.</p>
 </details>
