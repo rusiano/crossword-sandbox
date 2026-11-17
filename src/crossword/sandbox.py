@@ -49,7 +49,10 @@ SANDBOX_STYLE = r"""
 .toolbar button.danger:hover:not(:disabled) { border-color: #b00020; color: #b00020; }
 .toolbar select { padding: 3px 6px; border: 1px solid var(--ink); border-radius: 6px;
                   background: var(--paper); color: var(--ink); max-width: 14em; }
-.toolbar .saved { color: var(--muted); font-size: 0.75rem; }
+/* The save state sits in the page's top-right corner, beside the title, not among the tools */
+main { position: relative; }
+.save-note { position: absolute; top: 0.3rem; right: 0; color: var(--muted); font-size: 0.8rem; }
+.save-note.error { color: #b00020; font-weight: 600; }
 .toolbar kbd { font: inherit; font-size: 0.7rem; padding: 0 4px; border: 1px solid currentColor;
                border-radius: 3px; opacity: 0.6; }
 .toolbar .help summary { list-style: none; }
@@ -60,11 +63,37 @@ SANDBOX_STYLE = r"""
                    background: var(--paper); border: 1px solid var(--ink); border-radius: 6px;
                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
 .toolbar .help kbd { font-size: 0.75rem; }
-.sandbox-status { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+/* The status bar stands out from the page: white on dark grey */
+.sandbox-status { color: #fff; background: #333; font-size: 0.85rem; margin: 0 0 12px;
+                  padding: 6px 12px; border-radius: 6px; }
+.sandbox-status [hidden] { display: none; }
+.sandbox-status .size input { width: 3.2em; padding: 1px 4px; font: inherit; color: var(--ink);
+                              border: 1px solid #777; border-radius: 4px; background: var(--paper); }
+.sandbox-status .size input:focus { outline: 2px solid #8ab4f8; }
 .sandbox-status .ratio { font-weight: 600; }
-.sandbox-status .ratio.good { color: #2e7d32; }
-.sandbox-status .ratio.fair { color: #c46a00; }
-.sandbox-status .ratio.poor { color: #b00020; }
+/* Lighter shades, readable on the dark bar */
+.sandbox-status .ratio.good { color: #81c784; }
+.sandbox-status .ratio.fair { color: #ffb74d; }
+.sandbox-status .ratio.poor { color: #ff8a80; }
+.sandbox-status .popover .ratio.good { color: #2e7d32; }
+.sandbox-status .popover .ratio.fair { color: #c46a00; }
+.sandbox-status .popover .ratio.poor { color: #b00020; }
+.sandbox-status .info { position: relative; }
+.sandbox-status .info button { width: 1.25rem; height: 1.25rem; margin-left: 4px; padding: 0;
+                               font: italic 600 0.75rem/1 Georgia, serif; color: #ccc;
+                               border: 1px solid #999; border-radius: 50%; background: transparent;
+                               cursor: pointer; vertical-align: 1px; }
+.sandbox-status .info button { cursor: help; }
+.sandbox-status .info:hover button, .sandbox-status .info button:focus-visible {
+  color: #333; border-color: #fff; background: #fff; outline: none; }
+/* The note shows while the pointer is on the (i), or while it has the keyboard focus */
+.sandbox-status .popover { display: none; }
+.sandbox-status .info:hover .popover, .sandbox-status .info:focus-within .popover { display: block; }
+.sandbox-status .popover { position: absolute; left: 0; top: calc(100% + 6px); z-index: 4;
+                           width: min(22rem, 80vw); padding: 8px 10px; color: var(--ink);
+                           line-height: 1.5; background: var(--paper); border: 1px solid var(--ink);
+                           border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+.sandbox-status .popover ul { margin: 4px 0 0; padding-left: 1.2em; }
 /* The grid and the word list beside it (or the grid alone) sit in the middle of the page */
 .board-row { display: flex; gap: 24px; justify-content: center; }
 .board-row .board-wrap { flex: 0 1 auto; min-width: 0; overflow: auto; }
@@ -145,7 +174,8 @@ const DEFAULT_SIZE = 15;
 const KEY = "crossword-sandbox-schemas";
 const SERVER = __STORE__ !== null;
 const board = document.getElementById("board");
-const status = document.getElementById("status");
+const modeNote = document.getElementById("mode-note");
+const stats = document.getElementById("stats");
 const schemaSelect = document.getElementById("schema");
 const savedNote = document.getElementById("saved");
 const wordList = document.getElementById("word-list");
@@ -154,7 +184,7 @@ let rows, cols, placed, order, manual, allBlack, current;
 let selected = null, drag = null, typing = null, lastDir = "across", painting = false, paint = null;
 // What is shown is a per-browser preference, not part of a schema
 const VIEW_KEY = "crossword-sandbox-view";
-let view = {letters: true, numbers: false, words: true, definitions: false};
+let view = {letters: true, numbers: false, blackNumbers: true, words: true, definitions: false};
 try {
   const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
   // Earlier versions kept the word list's state under its own key, and showed
@@ -163,7 +193,14 @@ try {
   if (!("definitions" in saved)) saved.definitions = Boolean(saved.numbers);
   Object.assign(view, saved);
 } catch (e) {}
-const VIEWS = ["letters", "numbers", "words", "definitions"];
+// Each view toggle: its name in view, its button and its key
+const VIEWS = [
+  {name: "letters", id: "letters", key: "l"},
+  {name: "numbers", id: "numbers", key: "n"},
+  {name: "blackNumbers", id: "black-numbers", key: "m"},
+  {name: "words", id: "words", key: "w"},
+  {name: "definitions", id: "definitions", key: "d"},
+];
 
 function toggleView(name) {
   view[name] = !view[name];
@@ -201,14 +238,17 @@ if (firstVisit) {
 // A schema made just now (or brought over) is saved straight away
 let lastSaved = firstVisit ? null : JSON.stringify(store), timer = null;
 
-function setSaved(text) { savedNote.textContent = text; }
+function setSaved(text, error) {
+  savedNote.textContent = text;
+  savedNote.classList.toggle("error", Boolean(error));
+}
 
 function persist() {
   timer = null;
   const body = JSON.stringify(store);
   if (!SERVER) {
     try { localStorage.setItem(KEY, body); lastSaved = body; setSaved("Saved in this browser"); }
-    catch (e) { setSaved("Could not save"); }
+    catch (e) { setSaved("Could not save", true); }
     return;
   }
   fetch("/store", {method: "POST", headers: {"Content-Type": "application/json"}, body})
@@ -217,7 +257,7 @@ function persist() {
       lastSaved = body;
       setSaved("Saved");
     })
-    .catch(() => { setSaved("Not saved, retrying…"); timer = setTimeout(persist, 3000); });
+    .catch(() => { setSaved("Not saved, retrying…", true); timer = setTimeout(persist, 3000); });
 }
 
 // Write the current schema back into the store and save it shortly after
@@ -396,17 +436,36 @@ function grow(edge) {
   buildBoard();
 }
 
+// Remove the row or column on one side, if it can go. Tells whether it went.
+function shrink(edge) {
+  if (!canShrink(edge)) return false;
+  if (edge === "top" || edge === "bottom") rows--; else cols--;
+  if (edge === "top") shift(0, -1);
+  if (edge === "left") shift(-1, 0);
+  manual = new Set([...manual].filter(k => inGrid(k.split(",").map(Number))));
+  buildBoard();
+  return true;
+}
+
 // Add (delta 1) or remove (delta -1) a row or column on one side
 function resize(edge, delta) {
   const horizontal = edge === "top" || edge === "bottom";
   if (delta > 0) {
     if ((horizontal ? rows : cols) < MAX_LINES) grow(edge);
-  } else if (canShrink(edge)) {
-    if (horizontal) rows--; else cols--;
-    if (edge === "top") shift(0, -1);
-    if (edge === "left") shift(-1, 0);
-    manual = new Set([...manual].filter(k => inGrid(k.split(",").map(Number))));
-    buildBoard();
+  } else shrink(edge);
+  render();
+}
+
+// Set the number of rows or columns typed in the status line. Lines come and
+// go at the bottom (right); when a letter holds that line, they go from the
+// top (left) instead. The grid stops shrinking where letters sit on both sides.
+function setSize(axis, value) {
+  const n = Math.max(MIN_LINES, Math.min(MAX_LINES, Math.round(value)));
+  if (Number.isFinite(n)) {
+    const [far, near] = axis === "rows" ? ["bottom", "top"] : ["right", "left"];
+    const size = () => axis === "rows" ? rows : cols;
+    while (size() < n) grow(far);
+    while (size() > n && (shrink(far) || shrink(near)));
   }
   render();
 }
@@ -613,10 +672,10 @@ function render() {
       cell.prepend(num);
     }
     // Black cells are numbered in reading order, so they can be counted
-    if (!here.length && !outside.has(k)) {
+    if (!here.length && !outside.has(k) && ++black && view.blackNumbers) {
       const count = document.createElement("span");
       count.className = "count";
-      count.textContent = ++black;
+      count.textContent = black;
       cell.append(count);
     }
     cell.className = [
@@ -630,7 +689,7 @@ function render() {
   });
   renderWordList();
   renderClues(clues);
-  for (const name of VIEWS) document.getElementById(name).setAttribute("aria-pressed", view[name]);
+  for (const {name, id} of VIEWS) document.getElementById(id).setAttribute("aria-pressed", view[name]);
   document.querySelector("main").classList.toggle("side-hidden", !view.words);
   wordList.querySelectorAll("li[data-word]").forEach(li => {
     li.classList.toggle("selected", li.dataset.word === selected);
@@ -645,29 +704,35 @@ function render() {
     btn.disabled = btn.dataset.delta === "1" ? lines >= MAX_LINES : !canShrink(btn.dataset.edge);
   });
   save();
-  if (painting) {
-    status.textContent = "Black cells: click or drag over empty cells to add or remove them · B or Esc to stop";
-  } else if (typing) {
-    status.textContent = typing.text
+  // While editing black cells or typing, the status line says how; otherwise it
+  // shows the grid size (editable), the counts and the share of black cells
+  const message = painting
+    ? "Editing black cells: click or drag over empty cells to add or remove them · B or Esc to stop"
+    : !typing ? ""
+    : typing.text
       ? `Typing ${typing.dir}: ${typing.text.toUpperCase()} · ` +
         "Enter keeps it, Tab turns it, Backspace deletes a letter, Esc cancels"
       : `Cell picked (${typing.dir}) · type a word, or click one in the list to put it here. ` +
         "Tab turns, Esc cancels";
-  } else {
-    // Share of black cells among the schema's cells (letters and black cells):
-    // up to 15% is good, up to 22% is acceptable, more is too many
-    const share = black + map.size ? black / (black + map.size) * 100 : 0;
-    const ratio = document.createElement("span");
-    ratio.className = "ratio " + (share <= 15 ? "good" : share <= 22 ? "fair" : "poor");
-    ratio.title = "Black cells out of all the cells of the schema (letters and black cells)";
-    ratio.textContent = `${share.toFixed(1)}% black`;
-    status.replaceChildren(
-      `${rows} × ${cols} grid · ${order.length} word${order.length === 1 ? "" : "s"}` +
-      ` · ${black} black cell${black === 1 ? "" : "s"} · `,
-      ratio,
-      (clashes ? ` · ${clashes} clashing cell${clashes > 1 ? "s" : ""}` : "") +
-      (selected ? ` · selected: ${selected.toUpperCase()} (${placed[selected].dir})` : ""));
+  modeNote.textContent = message;
+  modeNote.hidden = !message;
+  stats.hidden = Boolean(message);
+  if (message) return;
+  // Leave a size being typed alone
+  for (const [id, n] of [["rows", rows], ["cols", cols]]) {
+    const input = document.getElementById(id);
+    if (document.activeElement !== input) input.value = n;
   }
+  document.getElementById("counts").textContent =
+    ` · ${black} black cell${black === 1 ? "" : "s"} · `;
+  // Share of black cells among the schema's cells (letters and black cells):
+  // up to 15% is good, up to 22% is acceptable, more is too many (see the (i) note)
+  const share = black + map.size ? black / (black + map.size) * 100 : 0;
+  const ratio = document.getElementById("ratio");
+  ratio.className = "ratio " + (share <= 15 ? "good" : share <= 22 ? "fair" : "poor");
+  ratio.textContent = `${share.toFixed(1)}% black`;
+  document.getElementById("extra").textContent =
+    clashes ? ` · ${clashes} clashing cell${clashes > 1 ? "s" : ""}` : "";
 }
 
 // --- Editing ---
@@ -821,8 +886,8 @@ board.addEventListener("pointercancel", endDrag);
 document.addEventListener("keydown", e => {
   if (e.target.closest("input, textarea, select") || e.ctrlKey || e.metaKey || e.altKey) return;
   if (typing) { typeKey(e); return; }
-  const name = VIEWS.find(n => n[0] === e.key.toLowerCase());
-  if (name) { e.preventDefault(); toggleView(name); return; }
+  const toggle = VIEWS.find(v => v.key === e.key.toLowerCase());
+  if (toggle) { e.preventDefault(); toggleView(toggle.name); return; }
   if (e.key.toLowerCase() === "b" || (painting && e.key === "Escape")) {
     e.preventDefault();
     setPainting(!painting);
@@ -887,7 +952,20 @@ document.getElementById("down").onclick = () => turn("down");
 document.getElementById("remove").onclick = () => selected && removeFromBoard(selected);
 document.getElementById("paint").onclick = () => setPainting(!painting);
 document.getElementById("all-black").onclick = toggleAllBlack;
-for (const name of VIEWS) document.getElementById(name).onclick = () => toggleView(name);
+for (const {name, id} of VIEWS) document.getElementById(id).onclick = () => toggleView(name);
+// The grid size in the status line: Enter or leaving the box applies it, Esc puts it back
+for (const axis of ["rows", "cols"]) {
+  const input = document.getElementById(axis);
+  input.addEventListener("change", () => {
+    setSize(axis, Number(input.value));
+    // It may not reach the size asked for, when letters are in the way
+    input.value = axis === "rows" ? rows : cols;
+  });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") input.blur();
+    if (e.key === "Escape") { input.value = axis === "rows" ? rows : cols; input.blur(); }
+  });
+}
 document.getElementById("clear").onclick = () => {
   if ((order.length || manual.size) && !confirm("Remove every word and black cell from the grid?")) return;
   placed = {}; order = []; manual = new Set(); selected = null; typing = null;
@@ -954,7 +1032,7 @@ def render_sandbox_page(title="Crossword", store=None):
     back to the server, otherwise in the browser's localStorage.
     """
     sidebar = """<aside class="side" id="side"><div class="side-inner">
-<h2>WORDS (<span id="word-count">0</span>)</h2>
+<h2>WORDLIST (<span id="word-count">0</span>)</h2>
 <ul id="word-list"></ul>
 <p class="hint" id="words-empty">Click an empty cell in the grid and type a word.</p>
 </div></aside>"""
@@ -965,7 +1043,8 @@ def render_sandbox_page(title="Crossword", store=None):
 <button type="button" data-edge="{edge}" data-delta="-1" title="Remove the {edge} {line}" aria-label="Remove the {edge} {line}">&minus;</button>
 </div>""")
     edges = "\n".join(edges)
-    body = f"""<div class="toolbar" role="toolbar" aria-label="Sandbox tools">
+    body = f"""<div class="save-note" id="saved" aria-live="polite"></div>
+<div class="toolbar" role="toolbar" aria-label="Sandbox tools">
 <div class="group" role="group" aria-label="Schema">
 <span class="label">Schema</span>
 <select id="schema" aria-label="Schema"></select>
@@ -973,7 +1052,6 @@ def render_sandbox_page(title="Crossword", store=None):
 <button type="button" id="schema-copy" title="Copy the current schema">Duplicate</button>
 <button type="button" id="schema-rename">Rename</button>
 <button type="button" id="schema-delete" class="danger">Delete</button>
-<span class="saved" id="saved" aria-live="polite"></span>
 </div>
 <div class="group" role="group" aria-label="Selected word">
 <span class="label">Word</span>
@@ -983,15 +1061,16 @@ def render_sandbox_page(title="Crossword", store=None):
 </div>
 <div class="group" role="group" aria-label="Grid">
 <span class="label">Grid</span>
-<button type="button" id="paint" title="Add or remove black cells (B)" aria-pressed="false">Black cells <kbd>B</kbd></button>
-<button type="button" id="all-black" aria-pressed="false" title="Count every empty cell as black, as in a full rectangular schema. Off: only the cells walled in by letters and the ones added by hand (A)">All black <kbd>A</kbd></button>
+<button type="button" id="paint" title="Add or remove black cells by hand: click or drag over empty cells (B)" aria-pressed="false">Edit black cells <kbd>B</kbd></button>
+<button type="button" id="all-black" aria-pressed="false" title="Show the cells outside the schema as black cells, and count them, as in a full rectangular schema. Off: they are grey, and only the cells walled in by letters and the ones added by hand are black (A)">Outside as black <kbd>A</kbd></button>
 <button type="button" id="clear" class="danger" title="Remove every word and black cell">Clear</button>
 </div>
 <div class="group" role="group" aria-label="View">
 <span class="label">View</span>
 <button type="button" id="letters" aria-pressed="true" title="Show or hide letters (L)">Letters <kbd>L</kbd></button>
-<button type="button" id="numbers" aria-pressed="false" title="Show or hide numbers (N)">Numbers <kbd>N</kbd></button>
-<button type="button" id="words" aria-pressed="true" aria-controls="side" title="Show or hide the word list (W)">Words <kbd>W</kbd></button>
+<button type="button" id="numbers" aria-pressed="false" title="Show or hide the word numbers (N)">Numbers <kbd>N</kbd></button>
+<button type="button" id="black-numbers" aria-pressed="true" title="Show or hide the numbers counting the black cells (M)">Black numbers <kbd>M</kbd></button>
+<button type="button" id="words" aria-pressed="true" aria-controls="side" title="Show or hide the word list (W)">Wordlist <kbd>W</kbd></button>
 <button type="button" id="definitions" aria-pressed="false" aria-controls="clues" title="Show or hide the definitions (D)">Definitions <kbd>D</kbd></button>
 </div>
 <div class="group end">
@@ -1000,14 +1079,29 @@ def render_sandbox_page(title="Crossword", store=None):
 to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
 <kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
 the list, to move that word there.
-<kbd>B</kbd>: add black cells. <kbd>A</kbd>: every empty cell
-is black, for a full rectangular schema; off, only the cells walled in by letters or added by hand count. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers, <kbd>W</kbd>: word list,
-<kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid add or remove
-rows and columns. Every schema is saved by itself: New and Duplicate never touch the others.</p>
+<kbd>B</kbd>: add or remove black cells by hand. <kbd>A</kbd>: show the cells outside the schema as black
+too, for a full rectangular schema; off, only the cells walled in by letters or added by hand are black.
+<kbd>L</kbd>: letters, <kbd>N</kbd>: word numbers, <kbd>M</kbd>: black cell numbers, <kbd>W</kbd>: word list,
+<kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid, or the size in the
+line below the tools, add or remove rows and columns. Every schema is saved by itself: New and Duplicate never
+touch the others.</p>
 </details>
 </div>
 </div>
-<p class="sandbox-status" id="status" aria-live="polite"></p>
+<div class="sandbox-status" id="status">
+<span id="mode-note" aria-live="polite" hidden></span>
+<span id="stats">
+<span class="size"><input type="number" id="rows" min="2" max="60" aria-label="Rows" title="Rows"> &times;
+<input type="number" id="cols" min="2" max="60" aria-label="Columns" title="Columns"> grid</span><span id="counts"></span><span
+class="ratio" id="ratio"></span><span class="info"><button type="button" id="ratio-info"
+aria-describedby="ratio-help" aria-label="Suggested share of black cells">i</button>
+<span class="popover" id="ratio-help" role="tooltip">Black cells out of all the cells of the schema
+(letters and black cells). Suggested:<ul>
+<li><span class="ratio good">up to 15%</span>: good</li>
+<li><span class="ratio fair">15&ndash;22%</span>: acceptable</li>
+<li><span class="ratio poor">over 22%</span>: too many</li></ul></span></span><span id="extra"></span>
+</span>
+</div>
 <div class="board-row">
 <div class="board-wrap"><div class="board-frame">
 {edges}

@@ -85,14 +85,34 @@ class SandboxPageTests(unittest.TestCase):
         self.assertIn('seen.has(k) || map.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
         self.assertIn('.board.painting div.painted', html)
-        # They are numbered so they can be counted
-        self.assertIn('count.textContent = ++black;', html)
+        # They are counted, and numbered when the view asks for it
+        self.assertIn('!outside.has(k) && ++black && view.blackNumbers', html)
 
     def test_black_share_is_coloured(self):
         html = render_sandbox_page()
         self.assertIn('share <= 15 ? "good" : share <= 22 ? "fair" : "poor"', html)
         for name in ['good', 'fair', 'poor']:
             self.assertIn(f'.sandbox-status .ratio.{name}', html)
+        # Hovering (or focusing) the (i) beside it shows the suggested shares
+        self.assertIn('id="ratio-info"\naria-describedby="ratio-help"', html)
+        self.assertIn('id="ratio-help" role="tooltip"', html)
+        self.assertIn('.sandbox-status .info:hover .popover, .sandbox-status .info:focus-within .popover', html)
+
+    def test_grid_size_is_editable(self):
+        html = render_sandbox_page()
+        start, end = html.index('id="status"'), html.index('class="board-row"')
+        for id_ in ['rows', 'cols']:
+            self.assertTrue(start < html.index(f'<input type="number" id="{id_}"') < end, id_)
+        self.assertIn('function setSize(axis, value)', html)
+        self.assertIn('while (size() > n && (shrink(far) || shrink(near)));', html)
+        # The status line no longer names the selected word
+        self.assertNotIn('selected: ', html)
+
+    def test_save_note_sits_outside_the_toolbar(self):
+        html = render_sandbox_page()
+        self.assertLess(html.index('class="save-note" id="saved"'), html.index('class="toolbar"'))
+        self.assertIn('setSaved("Not saved, retrying…", true)', html)
+        self.assertIn('.save-note.error', html)
 
     def test_all_black_counts_every_empty_cell(self):
         # A full rectangular schema has no outside, so every empty cell is black
@@ -149,12 +169,13 @@ class SandboxPageTests(unittest.TestCase):
 
     def test_view_toggles_sit_together(self):
         html = render_sandbox_page()
-        # Letters, numbers, words and definitions, side by side, each with its key
-        ids = [html.index(f'id="{id_}"') for id_ in ['letters', 'numbers', 'words', 'definitions']]
+        # Letters, numbers, black cell numbers, words and definitions, side by side, each with its key
+        ids = [html.index(f'id="{id_}"') for id_ in
+               ['letters', 'numbers', 'black-numbers', 'words', 'definitions']]
         self.assertEqual(ids, sorted(ids))
-        for key in 'LNWD':
+        for key in 'LNMWD':
             self.assertIn(f'<kbd>{key}</kbd></button>', html)
-        self.assertIn('const VIEWS = ["letters", "numbers", "words", "definitions"];', html)
+        self.assertIn('{name: "blackNumbers", id: "black-numbers", key: "m"},', html)
         # The definitions have their own toggle, apart from the numbers
         self.assertIn('box.hidden = !view.definitions || !order.length;', html)
         self.assertIn('class="clues" id="clues" hidden', html)
