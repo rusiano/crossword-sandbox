@@ -61,6 +61,10 @@ SANDBOX_STYLE = r"""
                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
 .toolbar .help kbd { font-size: 0.75rem; }
 .sandbox-status { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+.sandbox-status .ratio { font-weight: 600; }
+.sandbox-status .ratio.good { color: #2e7d32; }
+.sandbox-status .ratio.fair { color: #c46a00; }
+.sandbox-status .ratio.poor { color: #b00020; }
 /* The grid and the word list beside it (or the grid alone) sit in the middle of the page */
 .board-row { display: flex; gap: 24px; justify-content: center; }
 .board-row .board-wrap { flex: 0 1 auto; min-width: 0; overflow: auto; }
@@ -618,10 +622,19 @@ function render() {
       : `Cell picked (${typing.dir}) · type a word, or click one in the list to put it here. ` +
         "Tab turns, Esc cancels";
   } else {
-    status.textContent = `${rows} × ${cols} grid · ${order.length} word${order.length === 1 ? "" : "s"}` +
-      ` · ${black} black cell${black === 1 ? "" : "s"}` +
+    // Share of black cells among the schema's cells (letters and black cells):
+    // up to 15% is good, up to 22% is acceptable, more is too many
+    const share = black + map.size ? black / (black + map.size) * 100 : 0;
+    const ratio = document.createElement("span");
+    ratio.className = "ratio " + (share <= 15 ? "good" : share <= 22 ? "fair" : "poor");
+    ratio.title = "Black cells out of all the cells of the schema (letters and black cells)";
+    ratio.textContent = `${share.toFixed(1)}% black`;
+    status.replaceChildren(
+      `${rows} × ${cols} grid · ${order.length} word${order.length === 1 ? "" : "s"}` +
+      ` · ${black} black cell${black === 1 ? "" : "s"} · `,
+      ratio,
       (clashes ? ` · ${clashes} clashing cell${clashes > 1 ? "s" : ""}` : "") +
-      (selected ? ` · selected: ${selected.toUpperCase()} (${placed[selected].dir})` : "");
+      (selected ? ` · selected: ${selected.toUpperCase()} (${placed[selected].dir})` : ""));
   }
 }
 

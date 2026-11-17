@@ -88,6 +88,12 @@ class SandboxPageTests(unittest.TestCase):
         # They are numbered so they can be counted
         self.assertIn('count.textContent = ++black;', html)
 
+    def test_black_share_is_coloured(self):
+        html = render_sandbox_page()
+        self.assertIn('share <= 15 ? "good" : share <= 22 ? "fair" : "poor"', html)
+        for name in ['good', 'fair', 'poor']:
+            self.assertIn(f'.sandbox-status .ratio.{name}', html)
+
     def test_all_black_counts_every_empty_cell(self):
         # A full rectangular schema has no outside, so every empty cell is black
         html = render_sandbox_page()
