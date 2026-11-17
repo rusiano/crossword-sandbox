@@ -32,7 +32,7 @@ The server runs on `127.0.0.1:8000` (change it with `--port`). Press Ctrl+C to s
 - **L**, **N**, **W** and **D** show or hide the letters, the numbers, the word list and the definitions (also in the toolbar's View group). Click a word in the definitions to write its clue.
 - Keep several named schemas with New, Duplicate, Rename and Delete.
 
-Every word gets a black cell at each end. Black cells that are walled in by letters are drawn black. Empty cells the grid edge can reach without crossing a letter are drawn grey, as outside the puzzle. The status line counts the black cells.
+Every word gets a black cell at each end. Black cells that are walled in by letters are drawn black. Empty cells the grid edge can reach through shared sides without crossing a letter are drawn light grey, as outside the puzzle; the ones touching a letter by a side are a bit darker, as they delimit a word. The status line counts the black cells.
 
 The Help popover in the toolbar lists every shortcut.
 

@@ -90,7 +90,8 @@ SANDBOX_STYLE = r"""
 .board div.sel { background: #ffe9a8; }
 .board div.sel.cross { background: #ffd966; }
 .board div.block { background: var(--block); }
-.board div.end { background: #8c8c8c; }
+/* Outside cells sharing a side with a letter: they delimit a word */
+.board div.end { background: #b0b0b0; }
 .board div .count { color: var(--paper); font-size: 0.7rem; font-weight: 400; }
 /* While painting, the black cells added by hand get a light ring, to tell them from the others */
 .board.painting div.painted { box-shadow: inset 0 0 0 3px #bdbdbd; }
@@ -334,15 +335,15 @@ function makeRoom(w) {
   clamp(w);
 }
 
-// Cells without a letter that the edge of the grid reaches without crossing a
-// letter or a black cell added by hand (walls) lie outside the schema and are
-// shown grey, word-end black cells included. The cells walled in all around,
-// and the ones added by hand, are shown black.
-function outsideSet(map, walls) {
+// Cells outside the schema: an empty cell (no letter) on the edge of the grid
+// is outside, and so is any empty cell sharing a full side (not just a corner)
+// with an outside cell. Only letters stop it; black cells, word-end and
+// hand-painted alike, are empty cells here.
+function outsideSet(map) {
   const seen = new Set(), stack = [];
   const visit = (r, c) => {
     const k = r * cols + c;
-    if (r < 0 || r >= rows || c < 0 || c >= cols || seen.has(k) || map.has(k) || walls.has(k)) return;
+    if (r < 0 || r >= rows || c < 0 || c >= cols || seen.has(k) || map.has(k)) return;
     seen.add(k);
     stack.push([r, c]);
   };
@@ -547,9 +548,16 @@ function render() {
   const map = coverage(), blocks = blockSet(), {numbers, clues} = numbering();
   const hand = new Set(manualCells().filter(inGrid).map(([r, c]) => r * cols + c));
   // A full schema has no outside: every empty cell is black and counted
-  const outside = allBlack ? new Set() : outsideSet(map, hand);
-  // Word-end black cells, which stand out from the grey even when they are outside
-  const ends = new Set(order.flatMap(blocksOf).filter(inGrid).map(([r, c]) => r * cols + c));
+  const outside = allBlack ? new Set() : outsideSet(map);
+  // Cells painted by hand are always black, even outside
+  for (const k of hand) outside.delete(k);
+  // Outside cells sharing a full side with a letter delimit a word, so they get a darker grey
+  const touchesLetter = k => {
+    const r = Math.floor(k / cols), c = k % cols;
+    return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]
+      .some(([nr, nc]) => inGrid([nr, nc]) && map.has(nr * cols + nc));
+  };
+  const ends = new Set([...outside].filter(touchesLetter));
   const selCells = new Set(selected ? cellsOf(selected).map(([r, c]) => r * cols + c) : []);
   // Letters being typed, drawn over whatever is underneath
   const typingCells = new Map();
@@ -968,7 +976,7 @@ def render_sandbox_page(title="Crossword", store=None):
 to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
 <kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
 the list, to move that word there.
-<kbd>B</kbd>: add black cells (they also close off the area behind them). <kbd>A</kbd>: every empty cell
+<kbd>B</kbd>: add black cells. <kbd>A</kbd>: every empty cell
 is black, for a full rectangular schema; off, only the cells walled in by letters or added by hand count. <kbd>L</kbd>: letters, <kbd>N</kbd>: numbers, <kbd>W</kbd>: word list,
 <kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid add or remove
 rows and columns. Every schema is saved by itself: New and Duplicate never touch the others.</p>

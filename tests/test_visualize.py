@@ -81,8 +81,8 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         # and black, with the ones added by hand: black cells reachable from the
         # edge are grey. Cells added by hand also wall off what is behind them
-        self.assertIn('function outsideSet(map, walls)', html)
-        self.assertIn('map.has(k) || walls.has(k)) return;', html)
+        self.assertIn('function outsideSet(map)', html)
+        self.assertIn('seen.has(k) || map.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
         self.assertIn('.board.painting div.painted', html)
         # They are numbered so they can be counted
@@ -98,7 +98,8 @@ class SandboxPageTests(unittest.TestCase):
         # A full rectangular schema has no outside, so every empty cell is black
         html = render_sandbox_page()
         self.assertIn('id="all-black"', html)
-        self.assertIn('const outside = allBlack ? new Set() : outsideSet(map, hand);', html)
+        self.assertIn('const outside = allBlack ? new Set() : outsideSet(map);', html)
+        self.assertIn('for (const k of hand) outside.delete(k);', html)
         # It belongs to the schema, so it is saved and copied with it
         self.assertIn('blocks: [...manual], allBlack}', html)
         self.assertIn('allBlack = Boolean(schema.allBlack);', html)
