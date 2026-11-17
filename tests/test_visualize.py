@@ -106,11 +106,23 @@ class SandboxPageTests(unittest.TestCase):
         # and black, with the ones added by hand: black cells reachable from the
         # edge are grey. Cells added by hand also wall off what is behind them
         self.assertIn('function outsideSet(map)', html)
+        # It comes in from every side of the grid
+        self.assertIn('for (let r = 0; r < rows; r++) { visit(r, 0); visit(r, cols - 1); }', html)
         self.assertIn('seen.has(k) || map.has(k)) return;', html)
         self.assertIn('here.length ? "filled" : outside.has(k) ? "" : "block"', html)
         self.assertIn('.board.painting div.painted', html)
         # They are counted, and numbered when the view asks for it
         self.assertIn('!outside.has(k) && ++black && view.blackNumbers', html)
+
+    def test_external_cells_get_the_darker_grey(self):
+        # The cells along a word's sides don't delimit it, only the ones at its ends
+        html = render_sandbox_page()
+        # External cells (dark grey) are the word ends and the cells within the
+        # area the letters span, so a schema closed on all four sides has no light grey
+        self.assertIn('const ends = new Set([...outside].filter(k => wordEnds.has(k) || inArea(k)));', html)
+        self.assertIn('External as black <kbd>A</kbd></button>', html)
+        self.assertNotIn('Outside as black', html)
+        self.assertNotIn('touchesLetter', html)
 
     def test_black_share_is_coloured(self):
         html = render_sandbox_page()
@@ -153,7 +165,9 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         self.assertIn('id="all-black"', html)
         self.assertIn('const outside = allBlack ? new Set() : outsideSet(map);', html)
-        self.assertIn('for (const k of hand) outside.delete(k);', html)
+        # Cells painted outside the schema are shown as outside
+        self.assertNotIn('outside.delete(k)', html)
+        self.assertIn('.board.painting div.painted:not(.block)', html)
         # It belongs to the schema, so it is saved and copied with it
         self.assertIn('blocks: [...manual], allBlack}', html)
         self.assertIn('allBlack = Boolean(schema.allBlack);', html)

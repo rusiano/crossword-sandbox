@@ -148,11 +148,13 @@ main { position: relative; }
 .board div.sel { background: #ffe9a8; }
 .board div.sel.cross { background: #ffd966; }
 .board div.block { background: var(--block); }
-/* Outside cells sharing a side with a letter: they delimit a word */
+/* External cells: not walled in, but within the schema's area or at the ends of a word */
 .board div.end { background: #b0b0b0; }
 .board div .count { color: var(--paper); font-size: 0.7rem; font-weight: 400; }
 /* While painting, the black cells added by hand get a light ring, to tell them from the others */
 .board.painting div.painted { box-shadow: inset 0 0 0 3px #bdbdbd; }
+/* A painted cell that is external stays grey, so its ring is dark */
+.board.painting div.painted:not(.block) { box-shadow: inset 0 0 0 3px #555; }
 .board div.clash { background: #ffd6dc; color: #b00020; }
 .board div.typing { background: #d8f5d0; box-shadow: inset 0 0 0 2px #2e7d32; }
 .board div.cursor { box-shadow: inset 0 0 0 2px #2e7d32; animation: blink 1s steps(1) infinite; }
@@ -405,10 +407,11 @@ function makeRoom(w) {
   clamp(w);
 }
 
-// Cells outside the schema: an empty cell (no letter) on the edge of the grid
-// is outside, and so is any empty cell sharing a full side (not just a corner)
-// with an outside cell. Only letters stop it; black cells, word-end and
-// hand-painted alike, are empty cells here.
+// Cells not walled in by letters: an empty cell (no letter) on the edge of the
+// grid is one, and so is any empty cell sharing a full side (not just a
+// corner) with one. Only letters stop it; black cells, word-end and
+// hand-painted alike, are empty cells here. Inside the schema's area these are
+// its external cells, beyond it they are out of the schema (see render).
 function outsideSet(map) {
   const seen = new Set(), stack = [];
   const visit = (r, c) => {
@@ -647,39 +650,25 @@ function render() {
   const hand = new Set(manualCells().filter(inGrid).map(([r, c]) => r * cols + c));
   // A full schema has no outside: every empty cell is black and counted
   const outside = allBlack ? new Set() : outsideSet(map);
-  // Cells painted by hand are always black, even outside
-  for (const k of hand) outside.delete(k);
-  // Outside cells sharing a full side with a letter delimit a word, so they get a darker grey
-  const touchesLetter = k => {
+  // Cells painted by hand that are outside are shown as outside, like any other.
+  // The schema's area is the rectangle from its topmost, bottommost, leftmost
+  // and rightmost letters, so a side of the grid with a letter on it is its
+  // margin. Cells not walled in but inside that area are the schema's external
+  // cells, dark grey, and so are the cells just before and after each word
+  // (left and right of an across word, above and below a down word), which
+  // delimit it even beyond the area. Every other one is out of the schema, light grey.
+  const wordEnds = new Set(order.flatMap(blocksOf).filter(inGrid).map(([r, c]) => r * cols + c));
+  let top = rows, bottom = -1, left = cols, right = -1;
+  for (const k of map.keys()) {
     const r = Math.floor(k / cols), c = k % cols;
-    return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]
-      .some(([nr, nc]) => inGrid([nr, nc]) && map.has(nr * cols + nc));
-  };
-  const ends = new Set([...outside].filter(touchesLetter));
-  // A side of the grid with letters on it is the schema's margin, so it is closed:
-  // along it, a run of outside cells that has, or touches by a side, a cell
-  // delimiting a word turns dark grey all the way to the next letter or painted cell
-  const delimiting = new Set(ends);
-  const nearDelimiting = k => {
-    const r = Math.floor(k / cols), c = k % cols;
-    return [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]
-      .some(([nr, nc]) => inGrid([nr, nc]) && delimiting.has(nr * cols + nc));
-  };
-  const edges = [
-    Array.from({length: cols}, (_, c) => c),                     // top
-    Array.from({length: cols}, (_, c) => (rows - 1) * cols + c), // bottom
-    Array.from({length: rows}, (_, r) => r * cols),              // left
-    Array.from({length: rows}, (_, r) => r * cols + cols - 1),   // right
-  ];
-  for (const line of edges) {
-    if (!line.some(k => map.has(k))) continue;
-    let run = [];
-    for (const k of [...line, -1]) {
-      if (outside.has(k)) { run.push(k); continue; }
-      if (run.some(nearDelimiting)) run.forEach(j => ends.add(j));
-      run = [];
-    }
+    top = Math.min(top, r); bottom = Math.max(bottom, r);
+    left = Math.min(left, c); right = Math.max(right, c);
   }
+  const inArea = k => {
+    const r = Math.floor(k / cols), c = k % cols;
+    return r >= top && r <= bottom && c >= left && c <= right;
+  };
+  const ends = new Set([...outside].filter(k => wordEnds.has(k) || inArea(k)));
   const selCells = new Set(selected ? cellsOf(selected).map(([r, c]) => r * cols + c) : []);
   // Letters being typed, drawn over whatever is underneath
   const typingCells = new Map();
@@ -1158,7 +1147,7 @@ its definition; &times; takes it out of the schema.</span></span></h2>
 <div class="group" role="group" aria-label="Grid">
 <span class="label">Grid</span>
 <button type="button" id="paint" title="Add or remove black cells by hand: click or drag over empty cells (B)" aria-pressed="false">Edit black cells <kbd>B</kbd></button>
-<button type="button" id="all-black" aria-pressed="false" title="Show the cells outside the schema as black cells, and count them, as in a full rectangular schema. Off: they are grey, and only the cells walled in by letters and the ones added by hand are black (A)">Outside as black <kbd>A</kbd></button>
+<button type="button" id="all-black" aria-pressed="false" title="Show the external cells (the empty cells not walled in by letters) as black cells, and count them, as in a full rectangular schema. Off: they are grey, painted or not, and only the cells walled in by letters are black (A)">External as black <kbd>A</kbd></button>
 <button type="button" id="trim" title="Remove every outer row and column with no letter on it (T)">Trim <kbd>T</kbd></button></div>
 <div class="group" role="group" aria-label="View">
 <span class="label">View</span>
@@ -1174,8 +1163,11 @@ its definition; &times; takes it out of the schema.</span></span></h2>
 to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: across / down, arrows: move,
 <kbd>Del</kbd> or &times; in the list: take it out, <kbd>Esc</kbd>: deselect. Click an empty cell, then a word in
 the list, to move that word there.
-<kbd>B</kbd>: add or remove black cells by hand. <kbd>A</kbd>: show the cells outside the schema as black
-too, for a full rectangular schema; off, only the cells walled in by letters or added by hand are black.
+<kbd>B</kbd>: add or remove black cells by hand. <kbd>A</kbd>: show the external cells as black too, for a
+full rectangular schema; off, only the cells walled in by letters are black. External cells (dark grey) are
+the empty cells not walled in by letters within the area the words span, plus the cells at both ends of each
+word; light grey is beyond the schema. Painted cells that are external stay grey (with a dark ring while
+editing black cells).
 <kbd>T</kbd>: trim, removing every outer row and column with no letter on it.
 <kbd>L</kbd>: letters, <kbd>N</kbd>: word numbers, <kbd>M</kbd>: black cell numbers, <kbd>W</kbd>: word list,
 <kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid, or the size in the
