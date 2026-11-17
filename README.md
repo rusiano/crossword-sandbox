@@ -1,6 +1,8 @@
 # Crossword Sandbox
 
-A browser page for laying out crosswords by hand. You type words straight into a grid, then drag and turn them, paint black cells, write clues and keep several named layouts.
+![Application Demo](assets/demo.gif)
+
+An application to lay out crosswords by hand. You type words straight into a grid, then drag and turn them, write clues and keep several named layouts.
 
 It is pure Python (3.8 or newer) with no dependencies. A small local server hosts the page and saves your work.
 
