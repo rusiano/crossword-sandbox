@@ -152,6 +152,14 @@ class SandboxPageTests(unittest.TestCase):
         # Grey cells on a closed side of the grid (the schema's margin) block too
         self.assertIn('return wordEnds.has(k) || !walledIn.has(k) || hard.has(k);', html)
 
+    def test_closed_margins_get_a_thick_border(self):
+        html = render_sandbox_page()
+        for side in ['top', 'bottom', 'left', 'right']:
+            self.assertIn(f'.board.closed-{side} {{ border-{side}-color: var(--ink); }}', html)
+        self.assertIn('board.classList.toggle(`closed-${side}`, line.some(k => map.has(k)));', html)
+        # Clicks are measured inside the border
+        self.assertIn('board.clientLeft', html)
+
     def test_black_share_is_coloured(self):
         html = render_sandbox_page()
         self.assertIn('share <= 15 ? "good" : share <= 22 ? "fair" : "poor"', html)
@@ -213,7 +221,7 @@ class SandboxPageTests(unittest.TestCase):
     def test_trim_removes_empty_outer_lines(self):
         html = render_sandbox_page()
         grid = html.index('aria-label="Grid"')
-        self.assertTrue(grid < html.index('id="trim"') < html.index('aria-label="View"'))
+        self.assertTrue(grid < html.index('id="trim"') < html.index('</div>', grid))
         self.assertIn('Trim <kbd>T</kbd></button>', html)
         self.assertIn('for (const edge of EDGES) while (shrink(edge));', html)
         self.assertIn('if (e.key.toLowerCase() === "t") { e.preventDefault(); trim(); return; }', html)

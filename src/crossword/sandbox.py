@@ -144,7 +144,13 @@ main { position: relative; }
 .edge button:hover:not(:disabled) { border-color: var(--ink); }
 .edge button:disabled { opacity: 0.3; cursor: default; }
 .board { display: grid; gap: 1px; padding: 1px; background: #b8b8b8; width: max-content;
-         touch-action: none; user-select: none; -webkit-user-select: none; }
+         touch-action: none; user-select: none; -webkit-user-select: none;
+         border: 4px solid transparent; background-clip: padding-box; }
+/* A closed side of the grid (a letter on it: the schema's margin) gets a thick border */
+.board.closed-top { border-top-color: var(--ink); }
+.board.closed-bottom { border-bottom-color: var(--ink); }
+.board.closed-left { border-left-color: var(--ink); }
+.board.closed-right { border-right-color: var(--ink); }
 .board div { position: relative; width: 2.2rem; height: 2.2rem; background: #dcdcdc; display: flex;
              align-items: center; justify-content: center; font-size: 1.15rem;
              font-weight: 600; text-transform: uppercase; }
@@ -690,6 +696,9 @@ function render() {
   // Cells no word can run through: hard external ones, spreading from the
   // closed sides of the grid (see hardExternalSet)
   const hard = hardExternalSet(map);
+  for (const [side, line] of Object.entries(edgeLines())) {
+    board.classList.toggle(`closed-${side}`, line.some(k => map.has(k)));
+  }
   // A letter in one word only can't be crossed when both cells beside it,
   // across the word's direction, are hard boundaries: walled in by letters, a
   // word's end, past the grid's edge, or hard external. Other grey cells are
@@ -907,9 +916,11 @@ function typeKey(e) {
 // --- Events ---
 
 function cellAt(e) {
+  // Measure inside the border, which is there (if only transparent) on every side
   const rect = board.getBoundingClientRect();
-  const c = Math.floor((e.clientX - rect.left) / rect.width * cols);
-  const r = Math.floor((e.clientY - rect.top) / rect.height * rows);
+  const x = e.clientX - rect.left - board.clientLeft, y = e.clientY - rect.top - board.clientTop;
+  const c = Math.floor(x / board.clientWidth * cols);
+  const r = Math.floor(y / board.clientHeight * rows);
   return [Math.max(0, Math.min(r, rows - 1)), Math.max(0, Math.min(c, cols - 1))];
 }
 
@@ -1180,16 +1191,6 @@ its definition; &times; takes it out of the schema.</span></span></h2>
 </div>
 </div>
 <div class="toolbar" role="toolbar" aria-label="Schema tools">
-<div class="group" role="group" aria-label="Selected word">
-<span class="label">Word</span>
-<button type="button" id="across" title="Across (H)">Across <kbd>H</kbd></button>
-<button type="button" id="down" title="Down (V)">Down <kbd>V</kbd></button>
-<button type="button" id="remove" title="Take out of the grid (Delete)">Take out <kbd>Del</kbd></button>
-</div>
-<div class="group" role="group" aria-label="Grid">
-<span class="label">Grid</span>
-<button type="button" id="all-black" aria-pressed="false" title="Show the external cells (the empty cells not walled in by letters) as black cells, and count them, as in a full rectangular schema. Off: they are grey, and only the cells walled in by letters are black (A)">External as black <kbd>A</kbd></button>
-<button type="button" id="trim" title="Remove every outer row and column with no letter on it (T)">Trim <kbd>T</kbd></button></div>
 <div class="group" role="group" aria-label="View">
 <span class="label">View</span>
 <button type="button" id="letters" aria-pressed="true" title="Show or hide letters (L)">Letters <kbd>L</kbd></button>
@@ -1197,6 +1198,16 @@ its definition; &times; takes it out of the schema.</span></span></h2>
 <button type="button" id="black-cells" aria-pressed="true" title="Show or hide the numbers counting the black cells (B)">Black cells <kbd>B</kbd></button>
 <button type="button" id="words" aria-pressed="true" aria-controls="side" title="Show or hide the word list (W)">Wordlist <kbd>W</kbd></button>
 <button type="button" id="definitions" aria-pressed="false" aria-controls="clues" title="Show or hide the definitions (D)">Definitions <kbd>D</kbd></button>
+</div>
+<div class="group" role="group" aria-label="Grid">
+<span class="label">Grid</span>
+<button type="button" id="trim" title="Remove every outer row and column with no letter on it (T)">Trim <kbd>T</kbd></button>
+<button type="button" id="all-black" aria-pressed="false" title="Show the external cells (the empty cells not walled in by letters) as black cells, and count them, as in a full rectangular schema. Off: they are grey, and only the cells walled in by letters are black (A)">External as black <kbd>A</kbd></button></div>
+<div class="group" role="group" aria-label="Selected word">
+<span class="label">Word</span>
+<button type="button" id="across" title="Across (H)">Across <kbd>H</kbd></button>
+<button type="button" id="down" title="Down (V)">Down <kbd>V</kbd></button>
+<button type="button" id="remove" title="Take out of the grid (Delete)">Take out <kbd>Del</kbd></button>
 </div>
 <div class="group end">
 <details class="help"><summary>Help</summary>
@@ -1210,6 +1221,7 @@ cells not walled in by letters: dark grey at both ends of a word (real black cel
 letters on it (the schema's margin, closed): its empty cells, and every empty cell they touch, on and
 on, are hard external cells no word can run through (never on a side still open, corners included). Mid grey
 where they only border the schema within the area the words span; light grey is beyond the schema.
+A side of the grid with a letter on it is closed (the schema's margin) and gets a thick border.
 <kbd>T</kbd>: trim, removing every outer row and column with no letter on it.
 Letters are light blue when crossed by two words or when they can never be crossed (black or hard external on both sides
 across their word), so white letters are the ones still waiting for a crossing.
