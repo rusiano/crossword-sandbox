@@ -815,7 +815,14 @@ function finishTyping() {
 }
 
 function typeKey(e) {
-  const fits = (dir, len) => dir === "across" ? typing.c + len <= cols : typing.r + len <= rows;
+  // A word running past the grid makes it grow on the right (bottom), up to MAX_LINES.
+  // Tells whether a word of len letters now fits from the typing cell.
+  const fits = (dir, len) => {
+    const across = dir === "across";
+    const short = () => across ? typing.c + len > cols : typing.r + len > rows;
+    while (short() && (across ? cols : rows) < MAX_LINES) grow(across ? "right" : "bottom");
+    return !short();
+  };
   if (e.key === "Enter") finishTyping();
   else if (e.key === "Escape") { typing = null; render(); }
   else if (e.key === "Backspace") { typing.text = typing.text.slice(0, -1); render(); }

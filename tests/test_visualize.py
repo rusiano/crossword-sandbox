@@ -136,6 +136,8 @@ class SandboxPageTests(unittest.TestCase):
         self.assertIn('if (typing) { typeKey(e); return; }', html)
         # The letter test must reach the browser as a real regex, not a Python escape
         self.assertIn('/^\\p{L}$/u.test(e.key)', html)
+        # A word typed past the grid makes it grow instead of being cut
+        self.assertIn('while (short() && (across ? cols : rows) < MAX_LINES) grow(across ? "right" : "bottom");', html)
 
     def test_words_keep_room_for_black_cells(self):
         html = render_sandbox_page()
