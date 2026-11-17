@@ -24,6 +24,30 @@ class PageTests(unittest.TestCase):
         self.assertIn('<aside class="side" id="side">', html)
         self.assertIn('main.side-hidden .side { display: none; }', html)
         self.assertIn('classList.toggle("side-hidden", !view.words)', html)
+        # It is on whenever the page opens
+        self.assertIn('\nview.words = true;', html)
+
+    def test_word_list_opens_a_definition_popup(self):
+        html = render_sandbox_page()
+        self.assertIn('<dialog class="def-dialog" id="def-dialog"', html)
+        self.assertIn('select(w);\n  openDefinition(w);', html)
+        # It can be closed without saving: ×, Cancel, Esc (native) or a click on the backdrop
+        self.assertIn('for (const id of ["def-close", "def-cancel"]) document.getElementById(id).onclick = () => defDialog.close();', html)
+        self.assertIn('if (e.target === defDialog && downOnBackdrop) defDialog.close();', html)
+        # Only Save writes the definition
+        self.assertIn('defDialog.close();\n  setDefinition(w, defInput.value);', html)
+        # Shortcuts are off while it is open
+        self.assertIn('if (defDialog.open) return;', html)
+
+    def test_word_list_marks_words_without_definition(self):
+        html = render_sandbox_page()
+        self.assertIn('li.classList.toggle("no-def", !store.definitions[w]);', html)
+        self.assertIn('.side li.no-def button.pick { font-style: italic; font-weight: 400; color: #555; }', html)
+        self.assertIn('.side li button.pick { color: var(--ink); font-weight: 700; }', html)
+        # An (i) beside the heading explains the list
+        side = html.index('<aside class="side" id="side">')
+        self.assertLess(side, html.index('id="words-info"'))
+        self.assertIn('id="words-help" role="tooltip"', html)
         # The Words button in the toolbar replaced the title row toggle
         self.assertNotIn('id="side-toggle"', html)
 
@@ -96,7 +120,17 @@ class SandboxPageTests(unittest.TestCase):
         # Hovering (or focusing) the (i) beside it shows the suggested shares
         self.assertIn('id="ratio-info"\naria-describedby="ratio-help"', html)
         self.assertIn('id="ratio-help" role="tooltip"', html)
-        self.assertIn('.sandbox-status .info:hover .popover, .sandbox-status .info:focus-within .popover', html)
+        self.assertIn('.info:hover .popover, .info:focus-within .popover { display: block; }', html)
+
+    def test_undefined_share_is_red_unless_zero(self):
+        html = render_sandbox_page()
+        start, end = html.index('id="status"'), html.index('class="board-row"')
+        self.assertTrue(start < html.index('id="undefined"') < end)
+        self.assertIn('const missing = order.filter(w => !store.definitions[w]).length;', html)
+        self.assertIn('undef.className = "ratio " + (missing ? "poor" : "good");', html)
+        self.assertIn('Math.ceil(missing / order.length * 100)', html)
+        # The word count sits just before it
+        self.assertIn('id="word-total"></span><span id="undefined-part">', html)
 
     def test_grid_size_is_editable(self):
         html = render_sandbox_page()
@@ -129,6 +163,15 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         self.assertIn('return order.flatMap(cellsOf).every(', html)
         self.assertIn('[...order.flatMap(blocksOf), ...manualCells()].filter(inGrid)', html)
+
+    def test_trim_removes_empty_outer_lines(self):
+        html = render_sandbox_page()
+        grid = html.index('aria-label="Grid"')
+        self.assertTrue(grid < html.index('id="trim"') < html.index('aria-label="View"'))
+        self.assertIn('Trim <kbd>T</kbd></button>', html)
+        self.assertIn('for (const edge of EDGES) while (shrink(edge));', html)
+        self.assertIn('if (e.key.toLowerCase() === "t") { e.preventDefault(); trim(); return; }', html)
+        self.assertIn('document.getElementById("trim").disabled = !EDGES.some(canShrink);', html)
 
     def test_typing_mode_is_wired_up(self):
         html = render_sandbox_page()
@@ -165,11 +208,11 @@ class SandboxPageTests(unittest.TestCase):
         html = render_sandbox_page()
         # Picking and managing schemas has its own bar
         bar, tools = html.index('class="toolbar schemas"'), html.index('class="toolbar" role="toolbar"')
-        for id_ in ['schema', 'schema-new', 'schema-copy', 'schema-rename', 'schema-delete']:
+        for id_ in ['schema', 'schema-new', 'schema-copy', 'schema-rename', 'clear', 'schema-delete']:
             self.assertTrue(bar < html.index(f'id="{id_}"') < tools, id_)
         # The sticky toolbar holds the tools for the current schema
         end = html.index('id="status"')
-        for id_ in ['across', 'remove', 'paint', 'clear', 'letters', 'numbers', 'words', 'definitions']:
+        for id_ in ['across', 'remove', 'paint', 'letters', 'numbers', 'words', 'definitions']:
             self.assertTrue(tools < html.index(f'id="{id_}"') < end, id_)
         self.assertIn('<details class="help">', html)
         self.assertIn('.toolbar.schemas { position: static;', html)

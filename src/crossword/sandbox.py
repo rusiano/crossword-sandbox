@@ -82,22 +82,47 @@ main { position: relative; }
 .sandbox-status .popover .ratio.good { color: #2e7d32; }
 .sandbox-status .popover .ratio.fair { color: #c46a00; }
 .sandbox-status .popover .ratio.poor { color: #b00020; }
-.sandbox-status .info { position: relative; }
-.sandbox-status .info button { width: 1.25rem; height: 1.25rem; margin-left: 4px; padding: 0;
-                               font: italic 600 0.75rem/1 Georgia, serif; color: #ccc;
-                               border: 1px solid #999; border-radius: 50%; background: transparent;
-                               cursor: pointer; vertical-align: 1px; }
-.sandbox-status .info button { cursor: help; }
+/* An (i) that shows a note while the pointer is on it, or while it has the keyboard focus */
+.info { position: relative; }
+.info button { width: 1.25rem; height: 1.25rem; margin-left: 4px; padding: 0;
+               font: italic 600 0.75rem/1 Georgia, serif; letter-spacing: 0; color: var(--muted);
+               border: 1px solid #bbb; border-radius: 50%; background: var(--paper);
+               cursor: help; vertical-align: 1px; }
+.info:hover button, .info button:focus-visible {
+  color: var(--paper); border-color: var(--ink); background: var(--ink); outline: none; }
+.info .popover { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 4;
+                 width: min(22rem, 80vw); padding: 8px 10px; color: var(--ink);
+                 font-size: 0.85rem; font-weight: 400; letter-spacing: 0; text-transform: none;
+                 line-height: 1.5; background: var(--paper); border: 1px solid var(--ink);
+                 border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+.info:hover .popover, .info:focus-within .popover { display: block; }
+.info .popover ul { margin: 4px 0 0; padding-left: 1.2em; }
+/* On the dark status bar */
+.sandbox-status .info button { color: #ccc; border-color: #999; background: transparent; }
 .sandbox-status .info:hover button, .sandbox-status .info button:focus-visible {
-  color: #333; border-color: #fff; background: #fff; outline: none; }
-/* The note shows while the pointer is on the (i), or while it has the keyboard focus */
-.sandbox-status .popover { display: none; }
-.sandbox-status .info:hover .popover, .sandbox-status .info:focus-within .popover { display: block; }
-.sandbox-status .popover { position: absolute; left: 0; top: calc(100% + 6px); z-index: 4;
-                           width: min(22rem, 80vw); padding: 8px 10px; color: var(--ink);
-                           line-height: 1.5; background: var(--paper); border: 1px solid var(--ink);
-                           border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
-.sandbox-status .popover ul { margin: 4px 0 0; padding-left: 1.2em; }
+  color: #333; border-color: #fff; background: #fff; }
+/* The sidebar is at the right of the page, so its note opens to the left */
+.side .info .popover { left: auto; right: 0; width: min(18rem, 80vw); }
+/* The definition popup: the dialog itself has no padding, so a click on it is a click on the backdrop */
+.def-dialog { padding: 0; width: min(28rem, calc(100vw - 32px)); border: 1px solid var(--ink);
+              border-radius: 8px; background: var(--paper); color: var(--ink);
+              box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25); }
+.def-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+.def-dialog form { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
+.def-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.def-head h2 { margin: 0; font-size: 1rem; letter-spacing: 0.05em; }
+.def-close { padding: 0 6px; font-size: 1.4rem; line-height: 1; border: 0; background: none;
+             color: var(--muted); cursor: pointer; }
+.def-close:hover { color: var(--ink); }
+.def-dialog input { padding: 6px 8px; font: inherit; border: 1px solid #bbb; border-radius: 6px; }
+.def-dialog input:focus { border-color: var(--ink); outline: none; }
+.def-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.def-actions button { padding: 4px 12px; font: inherit; font-size: 0.85rem; border: 1px solid var(--ink);
+                      border-radius: 6px; background: var(--paper); color: var(--ink); cursor: pointer; }
+.def-actions button.primary { background: var(--ink); color: var(--paper); }
+/* Words still waiting for a definition */
+.side li button.pick { color: var(--ink); font-weight: 700; }
+.side li.no-def button.pick { font-style: italic; font-weight: 400; color: #555; }
 /* The grid and the word list beside it (or the grid alone) sit in the middle of the page */
 .board-row { display: flex; gap: 24px; justify-content: center; }
 .board-row .board-wrap { flex: 0 1 auto; min-width: 0; overflow: auto; }
@@ -183,6 +208,7 @@ const stats = document.getElementById("stats");
 const schemaSelect = document.getElementById("schema");
 const savedNote = document.getElementById("saved");
 const wordList = document.getElementById("word-list");
+const defDialog = document.getElementById("def-dialog"), defInput = document.getElementById("def-input");
 const MIN_LINES = 2, MAX_LINES = 60;
 let rows, cols, placed, order, manual, allBlack, current;
 let selected = null, drag = null, typing = null, lastDir = "across", painting = false, paint = null;
@@ -191,12 +217,12 @@ const VIEW_KEY = "crossword-sandbox-view";
 let view = {letters: true, numbers: false, blackNumbers: true, words: true, definitions: false};
 try {
   const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
-  // Earlier versions kept the word list's state under its own key, and showed
-  // the definitions together with the numbers
-  if (!("words" in saved)) saved.words = localStorage.getItem("crossword-side-hidden") !== "1";
+  // Earlier versions showed the definitions together with the numbers
   if (!("definitions" in saved)) saved.definitions = Boolean(saved.numbers);
   Object.assign(view, saved);
 } catch (e) {}
+// The word list is always on when the page opens; W hides it until the next visit
+view.words = true;
 // Each view toggle: its name in view, its button and its key
 const VIEWS = [
   {name: "letters", id: "letters", key: "l"},
@@ -460,6 +486,14 @@ function resize(edge, delta) {
   render();
 }
 
+// Remove every outer row and column without a letter, on all four sides
+const EDGES = ["top", "bottom", "left", "right"];
+function trim() {
+  finishTyping();
+  for (const edge of EDGES) while (shrink(edge));
+  render();
+}
+
 // Set the number of rows or columns typed in the status line. Lines come and
 // go at the bottom (right); when a letter holds that line, they go from the
 // top (left) instead. The grid stops shrinking where letters sit on both sides.
@@ -592,6 +626,7 @@ function renderWordList() {
   wordList.replaceChildren(...words.map(w => {
     const li = document.createElement("li");
     li.dataset.word = w;
+    li.classList.toggle("no-def", !store.definitions[w]);
     const pick = document.createElement("button");
     pick.type = "button";
     pick.className = "pick";
@@ -702,6 +737,7 @@ function render() {
   const paintButton = document.getElementById("paint");
   paintButton.setAttribute("aria-pressed", painting);
   document.getElementById("all-black").setAttribute("aria-pressed", allBlack);
+  document.getElementById("trim").disabled = !EDGES.some(canShrink);
   board.classList.toggle("painting", painting);
   document.querySelectorAll(".edge button").forEach(btn => {
     const lines = btn.dataset.edge === "top" || btn.dataset.edge === "bottom" ? rows : cols;
@@ -735,6 +771,17 @@ function render() {
   const ratio = document.getElementById("ratio");
   ratio.className = "ratio " + (share <= 15 ? "good" : share <= 22 ? "fair" : "poor");
   ratio.textContent = `${share.toFixed(1)}% black`;
+  // Share of the schema's words with no definition yet: red unless there are none.
+  // Rounded up, so a single missing definition never reads as 0%.
+  const missing = order.filter(w => !store.definitions[w]).length;
+  // The word count comes first, so the share has something to be read against
+  document.getElementById("word-total").textContent =
+    ` · ${order.length} word${order.length === 1 ? "" : "s"}`;
+  const undef = document.getElementById("undefined");
+  document.getElementById("undefined-part").hidden = !order.length;
+  undef.className = "ratio " + (missing ? "poor" : "good");
+  undef.textContent = `${order.length ? Math.ceil(missing / order.length * 100) : 0}% undefined`;
+  undef.title = `${missing} of ${order.length} word${order.length === 1 ? "" : "s"} without a definition`;
   document.getElementById("extra").textContent =
     clashes ? ` · ${clashes} clashing cell${clashes > 1 ? "s" : ""}` : "";
 }
@@ -895,6 +942,8 @@ board.addEventListener("pointerup", endDrag);
 board.addEventListener("pointercancel", endDrag);
 
 document.addEventListener("keydown", e => {
+  // The definition popup takes every key while it is open
+  if (defDialog.open) return;
   if (e.target.closest("input, textarea, select") || e.ctrlKey || e.metaKey || e.altKey) return;
   if (typing) { typeKey(e); return; }
   const toggle = VIEWS.find(v => v.key === e.key.toLowerCase());
@@ -905,6 +954,7 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (e.key.toLowerCase() === "a") { e.preventDefault(); toggleAllBlack(); return; }
+  if (e.key.toLowerCase() === "t") { e.preventDefault(); trim(); return; }
   const keys = {
     h: () => turn("across"), v: () => turn("down"),
     ArrowLeft: () => move(-1, 0), ArrowRight: () => move(1, 0),
@@ -935,8 +985,35 @@ wordList.addEventListener("click", e => {
     return;
   }
   finishTyping();
-  select(selected === w ? null : w);
+  select(w);
+  openDefinition(w);
 });
+
+// The definition popup, opened from the word list. Save keeps what was typed
+// (an empty box drops the definition); ×, Cancel, Esc or a click outside the
+// box close it and keep the definition as it was.
+let defWord = null, downOnBackdrop = false;
+function openDefinition(w) {
+  defWord = w;
+  document.getElementById("def-title").textContent = `Definition of ${w.toUpperCase()}`;
+  defInput.value = store.definitions[w] || "";
+  defInput.placeholder = `Definition of ${w.toUpperCase()}`;
+  defDialog.showModal();
+  defInput.focus();
+  defInput.setSelectionRange(defInput.value.length, defInput.value.length);
+}
+defDialog.querySelector("form").addEventListener("submit", e => {
+  e.preventDefault();
+  const w = defWord;
+  defDialog.close();
+  setDefinition(w, defInput.value);
+});
+for (const id of ["def-close", "def-cancel"]) document.getElementById(id).onclick = () => defDialog.close();
+// Only a click that starts and ends on the backdrop closes it, not a text
+// selection dragged out of the box
+defDialog.addEventListener("pointerdown", e => { downOnBackdrop = e.target === defDialog; });
+defDialog.addEventListener("click", e => { if (e.target === defDialog && downOnBackdrop) defDialog.close(); });
+defDialog.addEventListener("close", () => { defWord = null; });
 
 // Clicking a clue selects its word and opens its definition for editing
 function openClue(li) {
@@ -963,6 +1040,7 @@ document.getElementById("down").onclick = () => turn("down");
 document.getElementById("remove").onclick = () => selected && removeFromBoard(selected);
 document.getElementById("paint").onclick = () => setPainting(!painting);
 document.getElementById("all-black").onclick = toggleAllBlack;
+document.getElementById("trim").onclick = trim;
 for (const {name, id} of VIEWS) document.getElementById(id).onclick = () => toggleView(name);
 // The grid size in the status line: Enter or leaving the box applies it, Esc puts it back
 for (const axis of ["rows", "cols"]) {
@@ -1043,7 +1121,11 @@ def render_sandbox_page(title="Crossword", store=None):
     back to the server, otherwise in the browser's localStorage.
     """
     sidebar = """<aside class="side" id="side"><div class="side-inner">
-<h2>WORDLIST (<span id="word-count">0</span>)</h2>
+<h2>WORDLIST (<span id="word-count">0</span>)<span class="info"><button type="button" id="words-info"
+aria-describedby="words-help" aria-label="About the word list">i</button>
+<span class="popover" id="words-help" role="tooltip">The words in this schema's grid, in alphabetical
+order. Words in <i>italic</i> have no definition yet. Click a word to select it in the grid and write
+its definition; &times; takes it out of the schema.</span></span></h2>
 <ul id="word-list"></ul>
 <p class="hint" id="words-empty">Click an empty cell in the grid and type a word.</p>
 </div></aside>"""
@@ -1062,6 +1144,7 @@ def render_sandbox_page(title="Crossword", store=None):
 <button type="button" id="schema-new" title="Start an empty schema (the current one is kept)">New</button>
 <button type="button" id="schema-copy" title="Copy the current schema">Duplicate</button>
 <button type="button" id="schema-rename">Rename</button>
+<button type="button" id="clear" class="danger" title="Remove every word and black cell from the current schema">Clear</button>
 <button type="button" id="schema-delete" class="danger">Delete</button>
 </div>
 </div>
@@ -1076,8 +1159,7 @@ def render_sandbox_page(title="Crossword", store=None):
 <span class="label">Grid</span>
 <button type="button" id="paint" title="Add or remove black cells by hand: click or drag over empty cells (B)" aria-pressed="false">Edit black cells <kbd>B</kbd></button>
 <button type="button" id="all-black" aria-pressed="false" title="Show the cells outside the schema as black cells, and count them, as in a full rectangular schema. Off: they are grey, and only the cells walled in by letters and the ones added by hand are black (A)">Outside as black <kbd>A</kbd></button>
-<button type="button" id="clear" class="danger" title="Remove every word and black cell">Clear</button>
-</div>
+<button type="button" id="trim" title="Remove every outer row and column with no letter on it (T)">Trim <kbd>T</kbd></button></div>
 <div class="group" role="group" aria-label="View">
 <span class="label">View</span>
 <button type="button" id="letters" aria-pressed="true" title="Show or hide letters (L)">Letters <kbd>L</kbd></button>
@@ -1094,6 +1176,7 @@ to move it, or click it in the list to select it. <kbd>H</kbd> / <kbd>V</kbd>: a
 the list, to move that word there.
 <kbd>B</kbd>: add or remove black cells by hand. <kbd>A</kbd>: show the cells outside the schema as black
 too, for a full rectangular schema; off, only the cells walled in by letters or added by hand are black.
+<kbd>T</kbd>: trim, removing every outer row and column with no letter on it.
 <kbd>L</kbd>: letters, <kbd>N</kbd>: word numbers, <kbd>M</kbd>: black cell numbers, <kbd>W</kbd>: word list,
 <kbd>D</kbd>: definitions (click one to write it). The +/&minus; buttons around the grid, or the size in the
 line below the tools, add or remove rows and columns. Every schema is saved by itself: New and Duplicate never
@@ -1112,7 +1195,8 @@ aria-describedby="ratio-help" aria-label="Suggested share of black cells">i</but
 (letters and black cells). Suggested:<ul>
 <li><span class="ratio good">up to 15%</span>: good</li>
 <li><span class="ratio fair">15&ndash;22%</span>: acceptable</li>
-<li><span class="ratio poor">over 22%</span>: too many</li></ul></span></span><span id="extra"></span>
+<li><span class="ratio poor">over 22%</span>: too many</li></ul></span></span><span
+id="word-total"></span><span id="undefined-part"> · <span id="undefined"></span></span><span id="extra"></span>
 </span>
 </div>
 <div class="board-row">
@@ -1123,6 +1207,17 @@ aria-describedby="ratio-help" aria-label="Suggested share of black cells">i</but
 {sidebar}
 </div>
 <div class="clues" id="clues" hidden></div>
+<dialog class="def-dialog" id="def-dialog" aria-labelledby="def-title">
+<form>
+<div class="def-head"><h2 id="def-title">Definition</h2>
+<button type="button" class="def-close" id="def-close" title="Close without saving (Esc)" aria-label="Close without saving">&times;</button></div>
+<input type="text" id="def-input" autocomplete="off" aria-labelledby="def-title">
+<div class="def-actions">
+<button type="button" id="def-cancel">Cancel</button>
+<button type="submit" id="def-save" class="primary">Save</button>
+</div>
+</form>
+</dialog>
 {SANDBOX_STYLE}"""
 
     # Keep "</script>" inside the data from closing the script early
