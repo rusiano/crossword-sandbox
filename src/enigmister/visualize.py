@@ -37,7 +37,7 @@ main.side-hidden .side { display: none; }
 """
 
 
-def page(body, title="Crossword", wide=False):
+def page(body, title="Enigmister", wide=False):
     """Wrap body HTML in the standalone page shell. A wide page spans the whole window."""
     main_class = ' class="wide"' if wide else ""
     return f"""<!doctype html>
@@ -78,7 +78,7 @@ def open_in_browser(target):
         webbrowser.open(target if is_url else f"file://{target}")
 
 
-def serve(port=8000, title="Crossword", open_browser=True, store_path=None):
+def serve(port=8000, title="Enigmister", open_browser=True, store_path=None):
     """Serve the sandbox on http://127.0.0.1:port.
 
     With store_path, the page's schemas are saved in that JSON file; without
@@ -155,7 +155,7 @@ def serve(port=8000, title="Crossword", open_browser=True, store_path=None):
     # Threaded, so an idle connection (browsers open spare ones) can't block every other request
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://localhost:{server.server_port}/"
-    print(f"Serving crossword sandbox at {url} (Ctrl+C to stop)")
+    print(f"Serving Enigmister at {url} (Ctrl+C to stop)")
     if store_path:
         print(f"Sandbox schemas are saved in {store_path}")
     if open_browser:
@@ -172,12 +172,12 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="python -m crossword.visualize",
-        description="Serve the crossword sandbox locally, to lay out a crossword by hand.",
+        prog="enigmister",
+        description="Serve Enigmister locally, to lay out a crossword by hand.",
     )
     parser.add_argument("-s", "--store", metavar="FILE",
                         help="JSON file to save the schemas in (default: the browser's localStorage)")
-    parser.add_argument("--title", default="Crossword", help="page title")
+    parser.add_argument("--title", default="Enigmister", help="page title")
     parser.add_argument("--port", type=int, default=8000, help="port to serve on (default: 8000)")
     # Serving is the only mode now; these used to switch it on
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)

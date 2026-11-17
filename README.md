@@ -1,26 +1,26 @@
-# Crossword Sandbox
+# Enigmister
 
 ![Application Demo](assets/demo.gif)
 
-An application to lay out crosswords by hand. You type words straight into a grid, then drag and turn them, write clues and keep several named layouts.
+Enigmister is an application to lay out crosswords by hand. You type words straight into a grid, then drag and turn them, write clues and keep several named layouts.
 
 It is pure Python (3.8 or newer) with no dependencies. A small local server hosts the page and saves your work.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/rusiano/crossword-sandbox.git
-cd crossword-sandbox
-./crossword                     # opens the sandbox in your browser
+git clone https://github.com/rusiano/enigmister.git
+cd enigmister
+./enigmister                    # opens the sandbox in your browser
 ```
 
-Your schemas and clues are saved in `schemas.json`, which is git-ignored, so they stay on your machine. Use `./crossword --store other.json` to keep them in another file.
+Your schemas and clues are saved in `schemas.json`, which is git-ignored, so they stay on your machine. Use `./enigmister --store other.json` to keep them in another file.
 
 You can also install it as a package:
 
 ```bash
 pip install -e .
-python -m crossword.visualize --store schemas.json
+enigmister --store schemas.json       # or: python -m enigmister.visualize
 ```
 
 The server runs on `127.0.0.1:8000` (change it with `--port`). Press Ctrl+C to stop it. Without `--store`, the schemas are kept in the browser's `localStorage`.
@@ -46,4 +46,4 @@ python -m pytest tests/
 python -m unittest tests.test_visualize    # without pytest
 ```
 
-Run the tests from the repository root, because they import `src.crossword`.
+Run the tests from the repository root, because they import `src.enigmister`.

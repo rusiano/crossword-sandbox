@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Shortcut for the crossword sandbox.
+"""Shortcut for Enigmister, the crossword sandbox.
 
-./crossword                  -> opens the sandbox, saving the schemas in schemas.json
-./crossword -s other.json    -> saves them in any other file
+./enigmister                 -> opens the sandbox, saving the schemas in schemas.json
+./enigmister -s other.json   -> saves them in any other file
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import sys
 root = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(root, "src"))
 
-from crossword.visualize import main
+from enigmister.visualize import main
 
 args = sys.argv[1:]
 if not any(a in ("-s", "--store") or a.startswith("--store=") for a in args):

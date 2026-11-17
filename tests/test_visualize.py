@@ -5,13 +5,13 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from unittest import mock
-from src.crossword.visualize import main, page, serve
-from src.crossword.sandbox import read_store, render_sandbox_page, write_store
+from src.enigmister.visualize import main, page, serve
+from src.enigmister.sandbox import read_store, render_sandbox_page, write_store
 
 class MainTests(unittest.TestCase):
 
     def test_serves_with_store_file(self):
-        with mock.patch('src.crossword.visualize.serve') as fake_serve:
+        with mock.patch('src.enigmister.visualize.serve') as fake_serve:
             code = main(['--store', 'mine.json', '--port', '9000'])
         self.assertEqual(code, 0)
         self.assertEqual(fake_serve.call_args.kwargs['store_path'], 'mine.json')

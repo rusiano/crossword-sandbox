@@ -214,7 +214,7 @@ SANDBOX_SCRIPT = r"""
 // Wait for the whole page, so every element the script looks up exists
 document.addEventListener("DOMContentLoaded", () => {
 const DEFAULT_SIZE = 15;
-const KEY = "crossword-sandbox-schemas";
+const KEY = "enigmister-schemas", OLD_KEY = "crossword-sandbox-schemas";
 const SERVER = __STORE__ !== null;
 const board = document.getElementById("board");
 const modeNote = document.getElementById("mode-note");
@@ -227,10 +227,11 @@ const MIN_LINES = 2, MAX_LINES = 60;
 let rows, cols, placed, order, allBlack, current;
 let selected = null, drag = null, typing = null, lastDir = "across";
 // What is shown is a per-browser preference, not part of a schema
-const VIEW_KEY = "crossword-sandbox-view";
+const VIEW_KEY = "enigmister-view", OLD_VIEW_KEY = "crossword-sandbox-view";
 let view = {letters: true, numbers: false, blackNumbers: true, words: true, definitions: false};
 try {
-  const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
+  // Fall back to the key used before the project was renamed Enigmister
+  const saved = JSON.parse(localStorage.getItem(VIEW_KEY) || localStorage.getItem(OLD_VIEW_KEY) || "{}");
   // Earlier versions showed the definitions together with the numbers
   if (!("definitions" in saved)) saved.definitions = Boolean(saved.numbers);
   Object.assign(view, saved);
@@ -267,7 +268,8 @@ function newSchema(name, from) {
 
 let store = __STORE__;
 if (!SERVER) {
-  try { store = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+  // Fall back to the key used before the project was renamed Enigmister
+  try { store = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY) || "null"); } catch (e) {}
 }
 if (!store || !Array.isArray(store.schemas)) store = {current: null, schemas: []};
 if (!store.definitions || typeof store.definitions !== "object") store.definitions = {};
@@ -1153,7 +1155,7 @@ loadSchema(store.schemas.find(s => s.id === store.current) || store.schemas[0]);
 """
 
 
-def render_sandbox_page(title="Crossword", store=None):
+def render_sandbox_page(title="Enigmister", store=None):
     """Render the sandbox page served at /.
 
     Words are typed into the grid, where they can be dragged around, turned
