@@ -35,6 +35,9 @@ SANDBOX_STYLE = r"""
 .toolbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px 0;
            align-items: center; margin: 0 0 12px; padding: 6px 0; background: var(--paper);
            border-bottom: 1px solid #ddd; }
+/* Picking and managing schemas sits on its own bar above the tools for the
+   current schema, and scrolls away while those stay on top */
+.toolbar.schemas { position: static; margin: 0 0 4px; padding: 0 0 6px; border-bottom: 0; }
 .toolbar .group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
                   padding: 0 12px; border-left: 1px solid #ddd; }
 .toolbar .group:first-child { padding-left: 0; border-left: 0; }
@@ -68,7 +71,8 @@ main { position: relative; }
                   padding: 6px 12px; border-radius: 6px; }
 .sandbox-status [hidden] { display: none; }
 .sandbox-status .size input { width: 3.2em; padding: 1px 4px; font: inherit; color: var(--ink);
-                              border: 1px solid #777; border-radius: 4px; background: var(--paper); }
+                              text-align: center; border: 1px solid #777; border-radius: 4px;
+                              background: #dcdcdc; }
 .sandbox-status .size input:focus { outline: 2px solid #8ab4f8; }
 .sandbox-status .ratio { font-weight: 600; }
 /* Lighter shades, readable on the dark bar */
@@ -1044,7 +1048,7 @@ def render_sandbox_page(title="Crossword", store=None):
 </div>""")
     edges = "\n".join(edges)
     body = f"""<div class="save-note" id="saved" aria-live="polite"></div>
-<div class="toolbar" role="toolbar" aria-label="Sandbox tools">
+<div class="toolbar schemas" role="toolbar" aria-label="Schemas">
 <div class="group" role="group" aria-label="Schema">
 <span class="label">Schema</span>
 <select id="schema" aria-label="Schema"></select>
@@ -1053,6 +1057,8 @@ def render_sandbox_page(title="Crossword", store=None):
 <button type="button" id="schema-rename">Rename</button>
 <button type="button" id="schema-delete" class="danger">Delete</button>
 </div>
+</div>
+<div class="toolbar" role="toolbar" aria-label="Schema tools">
 <div class="group" role="group" aria-label="Selected word">
 <span class="label">Word</span>
 <button type="button" id="across" title="Across (H)">Across <kbd>H</kbd></button>

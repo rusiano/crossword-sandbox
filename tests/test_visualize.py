@@ -159,13 +159,18 @@ class SandboxPageTests(unittest.TestCase):
             self.assertIn(f'id="{id_}"', html)
         self.assertLess(html.index('class="side"'), html.index('id="word-list"'))
 
-    def test_one_toolbar_holds_every_control(self):
+    def test_schema_bar_sits_apart_from_the_tools(self):
         html = render_sandbox_page()
-        start, end = html.index('class="toolbar"'), html.index('id="status"')
-        for id_ in ['schema', 'schema-new', 'across', 'remove', 'paint', 'clear',
-                    'letters', 'numbers', 'words', 'definitions']:
-            self.assertTrue(start < html.index(f'id="{id_}"') < end, id_)
+        # Picking and managing schemas has its own bar
+        bar, tools = html.index('class="toolbar schemas"'), html.index('class="toolbar" role="toolbar"')
+        for id_ in ['schema', 'schema-new', 'schema-copy', 'schema-rename', 'schema-delete']:
+            self.assertTrue(bar < html.index(f'id="{id_}"') < tools, id_)
+        # The sticky toolbar holds the tools for the current schema
+        end = html.index('id="status"')
+        for id_ in ['across', 'remove', 'paint', 'clear', 'letters', 'numbers', 'words', 'definitions']:
+            self.assertTrue(tools < html.index(f'id="{id_}"') < end, id_)
         self.assertIn('<details class="help">', html)
+        self.assertIn('.toolbar.schemas { position: static;', html)
 
     def test_view_toggles_sit_together(self):
         html = render_sandbox_page()
